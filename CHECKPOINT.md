@@ -154,7 +154,25 @@ Kartu yang tersedia:
 - Pindah ke cloud besar (AWS/GCP) — nunggu ada kebutuhan skala nyata
 - Claude Code terpasang permanen — nunggu kartu internasional beres atau proyek sudah generate income
 
-## 12. Tool Development — Kapan Baru Relevan (Bukan Sekarang)
+## 13. Progress VPS (Update Terbaru)
+
+- **VPS Biznet Gio SUDAH AKTIF** — nama service: `NEO Lite - XS 1.1 - fashion-platform`
+- Spek: 1 vCPU, 1GB RAM, 60GB Disk — Rp59.000/bulan (sedikit di atas estimasi awal ~50rb, masih wajar)
+- OS: Ubuntu 22.04 (polos, bukan varian CyberPanel/HestiaCP/aapanel)
+- Username & password SSH: **disimpan sendiri oleh user di notes HP** — jangan diketik ulang di chat manapun demi keamanan
+- Cara akses: dari Termux HP, `pkg install openssh` (sudah tersedia dari setup LTOS lama)
+
+### Next step yang lagi dikerjakan (belum selesai saat checkpoint ini ditulis):
+- [ ] Login pertama kali ke VPS via `ssh USERNAME@IP_VPS` dari Termux
+- [ ] Setelah berhasil login, LANJUTKAN ke checklist hardening di bagian **11** (SSH key, disable password login, UFW, Fail2Ban, non-root user) — **urutan ini penting, jangan install Node.js/apapun dulu sebelum hardening selesai**
+- [ ] Baru setelah hardening: install Node.js 20 LTS, setup PostgreSQL/koneksi ke Supabase
+
+### Kalau sesi berikutnya lanjut dari sini, hal yang perlu diketahui:
+- User sudah SSH-capable dari Termux (openssh terinstall)
+- Belum ada konfirmasi apakah SSH login pertama berhasil atau belum saat checkpoint ini dibuat
+- Command SSH pertama yang dicoba: `ssh USERNAME@IP_VPS` (ganti sesuai kredensial asli user)
+
+## 14. Tool Development — Kapan Baru Relevan (Bukan Sekarang)
 
 Sudah dibahas dan diputuskan **ditunda**, bukan ditolak — dipakai nanti di fase yang sesuai:
 
