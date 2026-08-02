@@ -1,0 +1,167 @@
+# CHECKPOINT — Fashion Platform (Multi-Tenant SaaS)
+
+> Update terakhir: 2 Agustus 2026
+> Cara pakai: paste/replace isi file ini ke `CHECKPOINT.md` di repo GitHub kamu tiap selesai sesi. Sesi berikutnya (room manapun) tinggal kasih raw link file ini ke Claude sebelum mulai kerja, biar konteks lengkap tanpa perlu re-explain.
+
+---
+
+## 1. Arah Proyek
+
+Platform multi-tenant SaaS untuk bisnis fashion — **bukan** duplikat-per-brand seperti LTOS lama.
+
+- Dipakai oleh: brand owner, vendor konveksi, custom tailor, pabrik
+- Tampilan depan (frontend) beda per tipe tenant, disusun dari **componentized blocks**
+- Backend, produksi, dan inventory **sama untuk semua tipe tenant**
+
+## 2. Model Bisnis
+
+- Uang customer masuk **langsung ke tenant** — platform tidak memegang transaksi
+- Platform dapat pemasukan dari tenant lewat: fee per-transaksi / bulanan / kontrak tahunan
+- Disimpan di tabel `tenant_billing`
+
+## 3. Akses Tenant
+
+- Subdomain per tenant: `namatenant.domain.com`
+- 1 backend + 1 database untuk semua tenant
+- Isolasi data lewat filter `tenant_id` di setiap query
+
+## 4. Infrastruktur
+
+- Pindah dari Termux ke **Oracle Cloud Free Tier** (gratis permanen, bukan trial)
+- Setup infra dilakukan **sebelum** mulai coding versi baru
+- LTOS lama tetap di Termux sebagai proyek terpisah, tidak diganggu
+
+## 5. Skema Database v2
+
+File aktif: `fashion_platform_schema_v2.sql` (lihat folder `db/`)
+File lama (arsip, referensi): `garment_production_schema.sql` (v1, single-tenant)
+
+Tabel yang sudah ada di v2:
+- `tenants`
+- `tenant_billing`
+- `orders`, `order_specs`, `order_spec_materials`
+- `payments`
+- `fabric_inventory`, `inventory_ledger`
+- `shipments`
+- `tenant_pipeline_stages` (pipeline produksi configurable per tenant)
+- `production_jobs`, `production_events` (event-sourced, generalisasi pola LTOS)
+- `staff`, `job_locks`, `work_log`, `production_stage_photos`
+
+## 6. Stage Produksi
+
+- **Tidak ada** konsultasi di tahap produksi — itu murni fase WEB, sudah masuk `order_specs`
+- **Gudang** adalah stage produksi pertama (opsional per tenant):
+  - Fungsi: verifikasi fisik bahan sebelum cutting
+  - **Bukan** titik konsumsi stok — `STOCK_CONSUMED` tetap terjadi di tahap cutting
+
+## 7. Ganti Kain (Gudang)
+
+Alur approval 2 lapis:
+1. Admin PIN dulu (filter internal)
+2. Baru dikirim ke customer untuk approve/reject (transparansi)
+
+Tabel baru: `spec_substitution_requests`
+
+## 8. Reject/Cancel Massal + Notifikasi Customer
+
+**Aturan notifikasi:**
+- SELALU kirim notif kalau: cancel permanen, atau butuh keputusan customer
+- Reject yang bisa diperbaiki: TIDAK kirim notif kecuali kumulatif menyebabkan delay
+- Agregasi WAJIB per total order (bukan per-bundle-kecil), pakai kolom `last_notified_qty` supaya tidak spam
+
+**Pilihan customer saat butuh keputusan** (tabel `customer_decisions`):
+- REFUND
+- WAIT_REPRODUCTION
+- CHOOSE_ALTERNATIVE
+
+## 9. No-Response Handling
+
+- Eskalasi bertahap: reminder → coba telfon manual → default action di deadline
+- **Bukan** langsung diam-diam jalan otomatis
+- Kebijakan deadline & default action di-**snapshot** ke `orders.checkout_policy_snapshot` saat checkout — supaya perubahan kebijakan di kemudian hari tidak menimpa kesepakatan order lama
+- Deadline **configurable per tenant**: `tenants.default_response_deadline_days`
+
+---
+
+## BELUM DIEKSEKUSI (next steps)
+
+### Skema
+- [ ] Tabel `spec_substitution_requests`
+- [ ] Tabel `customer_decisions`
+- [ ] Tabel `customer_notifications`
+- [ ] Kolom `checkout_policy_snapshot` di `orders`
+- [ ] Kolom `default_response_deadline_days` di `tenants`
+
+### Infrastruktur
+- [ ] Setup akun Oracle Cloud
+- [ ] Provision VPS
+- [ ] Install Node + pm2 + Nginx
+- [ ] Tes domain gratisan + HTTPS
+- [ ] Project Supabase baru (terpisah dari LTOS lama)
+
+### Backend
+- [ ] Function/procedure spec-lock (atomik: reserve inventory + ledger + event)
+- [ ] Backend skeleton: tenant resolver middleware
+- [ ] Mulai dari 1 tipe tenant dulu: **brand ready-stock** (paling simpel), baru generalisasi ke 4 tipe lain
+
+---
+
+## Catatan Kolaborasi
+
+- Repo: public, satu sumber kebenaran untuk semua room/sesi Claude
+- Strategi branch: untuk saat ini (fase desain, belum ada kode jalan), **cukup commit langsung ke `main`**. Branch `work/<topik>` baru dipakai kalau sudah mulai coding beneran.
+- Tidak ada koneksi otomatis Claude ↔ GitHub saat ini (belum ada connector GitHub tersedia) — update file ini secara manual: copy isi terbaru dari Claude → paste/commit lewat GitHub app.
+- Tiap sesi baru, kasih raw link `CHECKPOINT.md` ini ke Claude sebelum minta lanjut kerja.
+- **Claude tidak bisa kasih warning otomatis kalau limit chat mau habis** — jadi update file ini harus proaktif, di tiap titik keputusan penting kekunci, bukan nunggu limit mepet.
+
+---
+
+## 10. Constraint Pembayaran (Penting — Berlaku ke Semua Keputusan Infra)
+
+Kartu yang tersedia:
+- Kartu ATM/debit BRI — jaringan **GPN** (domestik Indonesia), **bukan** Visa/Mastercard. Tidak bisa dipakai untuk transaksi/verifikasi internasional.
+- SeaBank — kartu **virtual**. Ditolak oleh layanan yang mensyaratkan kartu fisik (misal Oracle Cloud eksplisit menolak kartu virtual/prepaid).
+- **Tidak ada** kartu kredit atau kartu debit fisik berlogo Visa/Mastercard.
+
+**Konsekuensi:**
+- Oracle Cloud Free Tier: **tidak bisa dipakai** (mensyaratkan kartu kredit/debit yang berfungsi seperti kredit, no PIN, no virtual/prepaid)
+- Claude Pro / Claude Code subscription bulanan: **kemungkinan besar juga terhambat** untuk sekarang, karena subscription internasional umumnya butuh kartu yang sama
+- Jasa pihak ketiga "jual VCC" (virtual credit card) via WhatsApp/Telegram: **tidak direkomendasikan** — risiko penipuan/data disalahgunakan, dan tetap berpotensi ditolak Oracle karena statusnya virtual
+
+**Keputusan yang diambil:** pakai infrastruktur yang menerima pembayaran domestik langsung (transfer bank/e-wallet), bukan cari jalan pintas kartu virtual/pihak ketiga.
+
+## 11. Keputusan Infrastruktur (Final untuk Fase Ini)
+
+- **VPS: Biznet Gio, paket NEO Lite (~Rp50.000/bulan)**
+  - OS: Ubuntu 22.04 LTS
+  - Data center: Jakarta
+  - Pembayaran: transfer bank/e-wallet domestik (resmi, langsung ke provider — bukan lewat perantara)
+  - Alasan pilih: harga termurah di antara provider lokal, kredibel, tidak butuh kartu internasional
+  - Alternatif kalau perlu ganti: IDCloudHost (storage NVMe lebih besar), DomaiNesia (tarif renewal flat)
+- **Database: Supabase free tier** (belum berubah dari rencana awal)
+- **Akses dari HP:** SSH via Termux (`pkg install openssh`, lalu `ssh user@ip_vps`)
+- **Node.js: pakai versi 20 LTS** (bukan 18 — upgrade rekomendasi dari review kedua)
+
+### Hardening wajib begitu VPS aktif (urutan sebelum install apapun lain):
+1. Setup SSH key (ed25519), lalu **disable password login** (`PasswordAuthentication no`, `PermitRootLogin no` di `/etc/ssh/sshd_config`)
+2. Firewall UFW aktif (allow OpenSSH + port yang dibutuhkan saja)
+3. Install Fail2Ban (proteksi brute-force SSH)
+4. Buat user non-root buat kerja sehari-hari (`adduser` + `usermod -aG sudo`)
+5. Setup backup manual rutin (`pg_dump` disimpan di storage terpisah, misal Google Drive) — VPS murah lokal tidak selalu reliable untuk snapshot otomatis
+
+### Belum dilakukan sekarang (sengaja ditunda, bukan lupa):
+- Docker/Kubernetes — over-engineering untuk fase ini
+- Pindah ke cloud besar (AWS/GCP) — nunggu ada kebutuhan skala nyata
+- Claude Code terpasang permanen — nunggu kartu internasional beres atau proyek sudah generate income
+
+## 12. Tool Development — Kapan Baru Relevan (Bukan Sekarang)
+
+Sudah dibahas dan diputuskan **ditunda**, bukan ditolak — dipakai nanti di fase yang sesuai:
+
+| Tool | Fungsi | Kapan baru relevan |
+|---|---|---|
+| **Claude Code** | Agentic coding, akses langsung ke file/repo/terminal | Begitu mulai coding backend beneran (bukan fase desain), dan kartu internasional/API credit sudah tersedia |
+| **MCP (Model Context Protocol)** | Konektor AI ↔ tools eksternal (GitHub, Supabase, dll) | Begitu ada repo aktif dipakai coding & database live yang butuh diakses langsung oleh AI |
+| **Graphite** | Visualisasi stacked PR, review kode berbasis graph/node | Begitu ada banyak perubahan kode kecil yang saling ketergantungan, atau sudah ada tim/kolaborator review |
+
+**Prinsip umum:** jangan pasang tool baru sebelum ada kebutuhan nyata yang dia selesaikan — matched ke fase proyek saat itu, bukan ke rasa "biar canggih".
