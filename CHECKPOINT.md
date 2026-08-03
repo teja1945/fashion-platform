@@ -205,3 +205,35 @@ Sudah dibahas dan diputuskan **ditunda**, bukan ditolak — dipakai nanti di fas
 | **Graphite** | Visualisasi stacked PR, review kode berbasis graph/node | Begitu ada banyak perubahan kode kecil yang saling ketergantungan, atau sudah ada tim/kolaborator review |
 
 **Prinsip umum:** jangan pasang tool baru sebelum ada kebutuhan nyata yang dia selesaikan — matched ke fase proyek saat itu, bukan ke rasa "biar canggih".
+## 13. Status Setup VPS & Troubleshooting Akses (3 Agustus 2026)
+
+- VPS Biznet Gio NEO Lite aktif & running (region West Java, Ubuntu 22.04)
+- **Blocker awal:** tidak bisa login ke Console Access (user `rakyat`) — selalu "Login incorrect", meski sudah reset password berkali-kali
+- Dashboard portal ternyata **tidak punya tombol reset password untuk Console Access** — hanya ada "Change SSH Key" untuk SSH Access
+- Coba jalur SSH pakai private key lama (`Rakyat1945.pem`) dari dashboard — juga gagal "Permission denied (publickey)", meski key valid dan ter-load sempurna setelah beberapa kali convert format (PEM → OpenSSH modern, hapus karakter `\r`)
+- Sudah kirim tiket ke support@biznetgio.com dengan detail teknis lengkap
+
+## 14. Solusi dari Support: Ganti Keypair — Masih Gagal (3 Agustus 2026)
+
+- Support Biznet Gio konfirmasi solusi: ganti keypair SSH lewat portal (bukan reset Console password)
+- Langkah yang sudah dilakukan sesuai instruksi resmi:
+  1. Generate keypair baru (ED25519) pakai `ssh-keygen -t ed25519 -f ~/fashion-platform-new -N ""` di Termux (bukan PuTTYGen, karena kerja dari HP Android)
+  2. Public key diupload ke portal (SSH Key > Add SSH Key), nama: `fashion-platform-new`
+  3. Keypair di-assign ke service via SSH Access > Change SSH Key > Confirm
+  4. Tunggu restart otomatis (~10 menit)
+  5. Test login: `ssh -i ~/fashion-platform-new rakyat@103.58.101.155`
+- **Hasil: TETAP "Permission denied (publickey)"** — sama seperti keypair lama
+- **Kesimpulan kuat:** baik Console Access, keypair lama, maupun keypair baru (sesuai prosedur resmi) semuanya gagal → root cause murni di sisi server/provider (kemungkinan proses update `authorized_keys` di VM tidak berjalan)
+- **Public key fingerprint yang dipakai:** `SHA256:Y+vmTWw5PysL4+0krODANzkpPPwVOzUKfdMb6xDU160`
+- **Status:** sudah reply tiket dengan detail hasil percobaan ini, menunggu eskalasi lebih lanjut dari support (kemungkinan perlu dicek manual dari sisi mereka)
+- Belum lanjut ke tahap hardening (SSH key, UFW, Fail2Ban) karena masih belum bisa masuk VPS sama sekali
+
+## 15. Catatan Teknis Termux (Referensi)
+
+- Kalau muncul error "type -1" saat SSH coba load private key (padahal `ssh-keygen -y` bisa baca key-nya), convert ulang formatnya pakai `ssh-keygen -p -N "" -f <keyfile>` (tanpa `-m PEM`) — convert ke format OpenSSH modern yang lebih kompatibel dengan OpenSSH versi baru (10.x di Termux)
+- Termux di HP ini punya masalah akses `/sdcard/Download/` langsung (permission denied meski izin storage sudah "Semua File") — solusinya copy-paste isi file manual lewat text editor + nano, bukan lewat `cp`/`ls` langsung ke storage
+
+## 16. Catatan Tool AI (Belum Relevan Sekarang)
+
+- Sempat ditanya soal MCP & "CLI AI" oleh teman — dikonfirmasi masih sesuai keputusan di bagian 12: ditunda sampai fase coding aktif
+- Opsi CLI AI coding assistant yang ada (buat referensi nanti kalau sudah waktunya): Claude Code, Gemini CLI, Codex CLI, Aider, Cursor
