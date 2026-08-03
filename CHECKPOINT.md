@@ -167,10 +167,32 @@ Kartu yang tersedia:
 - [ ] Setelah berhasil login, LANJUTKAN ke checklist hardening di bagian **11** (SSH key, disable password login, UFW, Fail2Ban, non-root user) — **urutan ini penting, jangan install Node.js/apapun dulu sebelum hardening selesai**
 - [ ] Baru setelah hardening: install Node.js 20 LTS, setup PostgreSQL/koneksi ke Supabase
 
-### Kalau sesi berikutnya lanjut dari sini, hal yang perlu diketahui:
-- User sudah SSH-capable dari Termux (openssh terinstall)
-- Belum ada konfirmasi apakah SSH login pertama berhasil atau belum saat checkpoint ini dibuat
-- Command SSH pertama yang dicoba: `ssh USERNAME@IP_VPS` (ganti sesuai kredensial asli user)
+### Kendala saat ini (belum terselesaikan — perlu bantuan support Biznet Gio):
+- Password Console Access sudah di-reset berkali-kali via dashboard, tetap muncul "Login incorrect" baik di Console maupun asumsi di sistem terkait
+- SSH key sudah diganti dari keypair lama `Rakyat` ke keypair baru `rakyat1745` (dibuat sendiri via `ssh-keygen -t ed25519` di Termux), sudah di-restart/reboot, tapi SSH dari Termux tetap gagal: `Permission denied (publickey)`
+- Sudah dicoba: reset password 2x, restart manual, update SSH key + reboot otomatis dari sistem — semua tidak berhasil membuka akses
+- **Kesimpulan sementara:** kemungkinan bug/delay sinkronisasi credential ke VM dari sisi platform Biznet Gio, bukan kesalahan langkah user
+- **Next action:** hubungi support Biznet Gio via WhatsApp (ikon hijau di portal), minta bantuan reset akses manual ke service `fashion-platform` (username: `rakyat`, IP: `103.58.101.155`)
+- Public key yang sudah didaftarkan (kalau perlu dikirim ulang ke support atau dicoba manual via `authorized_keys`):
+  ```
+  ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAhJ/9G6yKxDuRW+iReQN4z4EyhoibgDYnAmbwFf3PrG fashion-platform
+  ```
+- Private key ini tersimpan di HP user, di Termux path `~/.ssh/id_ed25519` — jangan generate baru dulu sebelum konfirmasi dari support, biar tidak makin membingungkan state key di server
+
+### Update: Setelah Rebuild Instance (masih belum berhasil)
+- Sudah dilakukan REBUILD instance (Stop → Rebuild → pilih Ubuntu-22.04) atas saran support Biznet Gio
+- Fingerprint host berubah lagi (normal, karena rebuild = OS fresh install)
+- SSH dengan key `Rakyat1945.pem` (yang di-generate otomatis via fitur "Create" di form Create NEO Lite) TETAP gagal: `Permission denied (publickey)` — bahkan setelah rebuild
+- File private key ada di Termux: `~/.ssh/Rakyat1945.pem` (permission 600 sudah diset)
+- Sedang mencoba reset password Console Access lagi untuk dicoba login via "Open Console" (browser terminal) — belum ada hasil konklusif saat checkpoint ini ditulis
+- **Kesimpulan kuat sekarang:** ini bukan human error dari user. Sudah dicoba: reset password berkali-kali, ganti SSH key 2x (manual import + auto-generate), restart, DAN rebuild penuh — semua tetap gagal. Ini indikasi kuat ada bug/masalah sistemik di platform Biznet Gio untuk service spesifik ini.
+- Support Biznet Gio sudah dihubungi via WhatsApp, sudah kasih beberapa saran (semua sudah dicoba: cek port dengan nmap [hasil: port 22 terbuka], ganti SSH key via portal, generate SSH key otomatis, rebuild instance) — belum ada solusi final dari mereka
+
+### Kalau sesi berikutnya lanjut dari sini:
+- JANGAN ulangi generate SSH key baru lagi atau rebuild lagi tanpa arahan baru dari support — sudah dicoba maksimal dari sisi user
+- Tanyakan ke user: apakah reset password Console yang terakhir dicoba berhasil, dan apakah ada balasan baru dari support Biznet Gio
+- Kalau masih gagal total dan support tidak bisa membantu lebih lanjut: pertimbangkan serius untuk PINDAH PROVIDER (IDCloudHost atau DomaiNesia, sudah ada di catatan alternatif) — jangan buang lebih banyak waktu di satu service yang bermasalah dari sisi platform
+- Kalau pindah provider: minta refund/komplain resmi ke Biznet Gio dulu kalau relevan (service tidak bisa diakses sejak awal karena bug platform, bukan salah user)
 
 ## 14. Tool Development — Kapan Baru Relevan (Bukan Sekarang)
 
