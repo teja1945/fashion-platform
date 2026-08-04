@@ -531,3 +531,27 @@ RLS + pola di atas ini **benar secara arsitektur**, tapi efektivitasnya bergantu
 3. **Wajib ditest tiap ada perubahan schema** — policy RLS gampang salah desain (terlalu ketat sampai user sendiri tidak bisa akses datanya, atau terlalu longgar sehingga tetap bocor). Perlu ada rutinitas test manual (coba akses data tenant A pakai context tenant B, harus gagal) tiap kali nambah tabel atau ubah policy.
 
 **Kesimpulan:** pola ini solid dan lazim dipakai di sistem production sungguhan, bukan eksperimen. Tapi bukan "pasang sekali lalu aman selamanya" — attention ke 3 poin di atas wajib jadi bagian dari checklist tiap kali menulis kode yang menyentuh database.
+
+## 23. `EVENT_CONTRACTS.md` — SELESAI DIBUAT ✅ (5 Agustus 2026)
+
+**File:** `db/EVENT_CONTRACTS.md` (sudah di-push ke repo, commit `16dbe86`)
+
+Dibuat sesuai rekomendasi review ChatGPT (bagian 19). Isinya diekstrak **langsung dari kode LTOS asli** (`ingestion.js`), bukan ditulis dari asumsi — dicari pakai:
+```
+grep -oE "[a-z_]+\.[a-z_]+" ~/ltos/src/ingestion.js | sort -u
+```
+
+### Isi file
+- **11 event existing** yang sudah teruji jalan di LTOS, masing-masing dengan struktur `type`, `version`, `tenant_id`, `payload`:
+  - Order: `order.created`, `order.updated`, `order.item_added`, `order.stage_changed`, `order.cancelled`
+  - Payment: `payment.initiated`, `payment.received`, `payment.failed`
+  - QC: `qc.passed`, `qc.failed`
+  - Shipment: `shipment.dispatched`, `shipment.delivered`
+- **4 event baru (masih draft, perlu direview lagi saat implementasi)** untuk fitur yang direncanakan tapi belum ada di LTOS: `spec.substitution_requested`, `spec.substitution_decided`, `customer.decision_made`, `notification.sent`
+- Aturan versioning: field baru opsional tidak perlu bump version; kalau struktur/makna berubah wajib naik version (v1 → v2), v1 lama tidak boleh diubah supaya replay event lama tetap konsisten
+
+### Next steps
+- [ ] Review ulang 4 event draft di atas saat mulai coding modul terkait masing-masing
+- [ ] Tambah event untuk `tenant_billing` setelah desain billing lebih matang
+- [ ] Lanjut ke desain **RLS policy detail per tabel** (bagian 22 baru garis besar pola koneksinya, belum ada policy spesifik per tabel)
+- [ ] Baru eksekusi schema SQL v2 setelah RLS policy per tabel selesai didesain
