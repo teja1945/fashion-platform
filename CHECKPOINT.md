@@ -1,6 +1,6 @@
 # CHECKPOINT — Fashion Platform (Multi-Tenant SaaS)
 
-> Update terakhir: 2 Agustus 2026
+> Update terakhir: 4 Agustus 2026
 > Cara pakai: paste/replace isi file ini ke `CHECKPOINT.md` di repo GitHub kamu tiap selesai sesi. Sesi berikutnya (room manapun) tinggal kasih raw link file ini ke Claude sebelum mulai kerja, biar konteks lengkap tanpa perlu re-explain.
 
 ---
@@ -27,7 +27,7 @@ Platform multi-tenant SaaS untuk bisnis fashion — **bukan** duplikat-per-brand
 
 ## 4. Infrastruktur
 
-- Pindah dari Termux ke **Oracle Cloud Free Tier** (gratis permanen, bukan trial)
+- Pindah dari Termux ke VPS (lihat bagian 11 — sekarang **aktif dan bisa diakses**)
 - Setup infra dilakukan **sebelum** mulai coding versi baru
 - LTOS lama tetap di Termux sebagai proyek terpisah, tidak diganggu
 
@@ -92,11 +92,14 @@ Tabel baru: `spec_substitution_requests`
 - [ ] Kolom `checkout_policy_snapshot` di `orders`
 - [ ] Kolom `default_response_deadline_days` di `tenants`
 
-### Infrastruktur
-- [ ] Setup akun Oracle Cloud
-- [ ] Provision VPS
-- [ ] Install Node + pm2 + Nginx
-- [ ] Tes domain gratisan + HTTPS
+### Infrastruktur — Hardening (lihat detail di bagian 11)
+- [ ] Setup SSH key yang benar dari Termux (percobaan sebelumnya lewat VNC gagal, key lama tidak valid)
+- [ ] Disable `PasswordAuthentication` (sekarang **yes**, sementara — harus balik ke **no** setelah key jalan)
+- [ ] Firewall UFW aktif
+- [ ] Install Fail2Ban
+- [ ] Verifikasi user `Rakyat` sudah non-root dengan sudo access yang benar
+- [ ] Setup backup manual rutin (`pg_dump` ke storage terpisah)
+- [ ] Install Node.js 20 LTS
 - [ ] Project Supabase baru (terpisah dari LTOS lama)
 
 ### Backend
@@ -130,71 +133,42 @@ Kartu yang tersedia:
 
 **Keputusan yang diambil:** pakai infrastruktur yang menerima pembayaran domestik langsung (transfer bank/e-wallet), bukan cari jalan pintas kartu virtual/pihak ketiga.
 
-## 11. Keputusan Infrastruktur (Final untuk Fase Ini)
+## 11. Keputusan & Status Infrastruktur
 
-- **VPS: Biznet Gio, paket NEO Lite (~Rp50.000/bulan)**
-  - OS: Ubuntu 22.04 LTS
+- **VPS: Biznet Gio, paket NEO Lite (~Rp50.000/bulan) — AKTIF**
+  - OS: **Ubuntu 22.04.5 LTS** (terkonfirmasi lewat SSH, sesuai rencana awal)
   - Data center: Jakarta
+  - IP: `103.58.101.155`
+  - Username: `Rakyat`
   - Pembayaran: transfer bank/e-wallet domestik (resmi, langsung ke provider — bukan lewat perantara)
   - Alasan pilih: harga termurah di antara provider lokal, kredibel, tidak butuh kartu internasional
   - Alternatif kalau perlu ganti: IDCloudHost (storage NVMe lebih besar), DomaiNesia (tarif renewal flat)
-- **Database: Supabase free tier** (belum berubah dari rencana awal)
-- **Akses dari HP:** SSH via Termux (`pkg install openssh`, lalu `ssh user@ip_vps`)
-- **Node.js: pakai versi 20 LTS** (bukan 18 — upgrade rekomendasi dari review kedua)
+- **Akses SSH: BERHASIL dari Termux** — `ssh Rakyat@103.58.101.155`
+  - Status saat ini: pakai **password authentication** (sementara, lihat catatan hardening di bawah)
+  - Password Console (portal Biznet Gio) sudah diganti dari default ke password custom
+- **Database: Supabase free tier** (belum berubah dari rencana awal, belum di-setup)
+- **Node.js: rencana pakai versi 20 LTS** (belum di-install)
 
-### Hardening wajib begitu VPS aktif (urutan sebelum install apapun lain):
-1. Setup SSH key (ed25519), lalu **disable password login** (`PasswordAuthentication no`, `PermitRootLogin no` di `/etc/ssh/sshd_config`)
-2. Firewall UFW aktif (allow OpenSSH + port yang dibutuhkan saja)
-3. Install Fail2Ban (proteksi brute-force SSH)
-4. Buat user non-root buat kerja sehari-hari (`adduser` + `usermod -aG sudo`)
-5. Setup backup manual rutin (`pg_dump` disimpan di storage terpisah, misal Google Drive) — VPS murah lokal tidak selalu reliable untuk snapshot otomatis
+### Catatan penting — Console/VNC vs SSH
+- Setup awal (hari pertama) sempat lama macet karena mencoba setup SSH key lewat **Console/noVNC di browser HP**. Ternyata noVNC **tidak reliable** untuk mengetik command presisi — karakter (terutama huruf besar dan simbol seperti `$`, `~`, kutip) sering ke-drop atau berubah saat diketik lewat keyboard Android di browser.
+- **Solusi yang dipakai:** karena SSH key gagal ter-setup dengan bersih, sementara diaktifkan `PasswordAuthentication yes` di `/etc/ssh/sshd_config.d/60-cloudimg-settings.conf` (pakai command `sudo sed -i` yang lebih reliable daripada edit manual di nano) — supaya bisa akses via SSH dari Termux tanpa tergantung VNC lagi.
+- **Prinsip ke depan:** hindari VNC/Console kalau bisa. Begitu akses SSH tersedia, semua kerjaan (termasuk baca/edit config) dikerjakan lewat SSH dari Termux, karena Termux (app native) tidak kena masalah karakter seperti VNC di browser.
+- File `authorized_keys` di server berisi 2 key: 1 key `ssh-rsa` lama (dari setup Termux sebelumnya, kemungkinan masih valid) + 1 key `ssh-ed25519` baru bernama `fashion-platform` (belum terverifikasi valid — perlu di-tes ulang setelah setup key yang lebih rapi dari Termux).
+
+### Hardening — status per item (urutan sebelum lanjut install lain-lain):
+1. [ ] Setup SSH key yang benar dari Termux (`ssh-copy-id` atau setara), verifikasi bisa login pakai key tanpa password
+2. [ ] Setelah key terverifikasi jalan: disable password login lagi (`PasswordAuthentication no`, `PermitRootLogin no`)
+3. [ ] Firewall UFW aktif (allow OpenSSH + port yang dibutuhkan saja)
+4. [ ] Install Fail2Ban (proteksi brute-force SSH)
+5. [ ] Verifikasi user `Rakyat` non-root dengan sudo access yang benar (kemungkinan sudah oke, tinggal dicek)
+6. [ ] Setup backup manual rutin (`pg_dump` disimpan di storage terpisah, misal Google Drive)
 
 ### Belum dilakukan sekarang (sengaja ditunda, bukan lupa):
 - Docker/Kubernetes — over-engineering untuk fase ini
 - Pindah ke cloud besar (AWS/GCP) — nunggu ada kebutuhan skala nyata
 - Claude Code terpasang permanen — nunggu kartu internasional beres atau proyek sudah generate income
 
-## 13. Progress VPS (Update Terbaru)
-
-- **VPS Biznet Gio SUDAH AKTIF** — nama service: `NEO Lite - XS 1.1 - fashion-platform`
-- Spek: 1 vCPU, 1GB RAM, 60GB Disk — Rp59.000/bulan (sedikit di atas estimasi awal ~50rb, masih wajar)
-- OS: Ubuntu 22.04 (polos, bukan varian CyberPanel/HestiaCP/aapanel)
-- Username & password SSH: **disimpan sendiri oleh user di notes HP** — jangan diketik ulang di chat manapun demi keamanan
-- Cara akses: dari Termux HP, `pkg install openssh` (sudah tersedia dari setup LTOS lama)
-
-### Next step yang lagi dikerjakan (belum selesai saat checkpoint ini ditulis):
-- [ ] Login pertama kali ke VPS via `ssh USERNAME@IP_VPS` dari Termux
-- [ ] Setelah berhasil login, LANJUTKAN ke checklist hardening di bagian **11** (SSH key, disable password login, UFW, Fail2Ban, non-root user) — **urutan ini penting, jangan install Node.js/apapun dulu sebelum hardening selesai**
-- [ ] Baru setelah hardening: install Node.js 20 LTS, setup PostgreSQL/koneksi ke Supabase
-
-### Kendala saat ini (belum terselesaikan — perlu bantuan support Biznet Gio):
-- Password Console Access sudah di-reset berkali-kali via dashboard, tetap muncul "Login incorrect" baik di Console maupun asumsi di sistem terkait
-- SSH key sudah diganti dari keypair lama `Rakyat` ke keypair baru `rakyat1745` (dibuat sendiri via `ssh-keygen -t ed25519` di Termux), sudah di-restart/reboot, tapi SSH dari Termux tetap gagal: `Permission denied (publickey)`
-- Sudah dicoba: reset password 2x, restart manual, update SSH key + reboot otomatis dari sistem — semua tidak berhasil membuka akses
-- **Kesimpulan sementara:** kemungkinan bug/delay sinkronisasi credential ke VM dari sisi platform Biznet Gio, bukan kesalahan langkah user
-- **Next action:** hubungi support Biznet Gio via WhatsApp (ikon hijau di portal), minta bantuan reset akses manual ke service `fashion-platform` (username: `rakyat`, IP: `103.58.101.155`)
-- Public key yang sudah didaftarkan (kalau perlu dikirim ulang ke support atau dicoba manual via `authorized_keys`):
-  ```
-  ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAhJ/9G6yKxDuRW+iReQN4z4EyhoibgDYnAmbwFf3PrG fashion-platform
-  ```
-- Private key ini tersimpan di HP user, di Termux path `~/.ssh/id_ed25519` — jangan generate baru dulu sebelum konfirmasi dari support, biar tidak makin membingungkan state key di server
-
-### Update: Setelah Rebuild Instance (masih belum berhasil)
-- Sudah dilakukan REBUILD instance (Stop → Rebuild → pilih Ubuntu-22.04) atas saran support Biznet Gio
-- Fingerprint host berubah lagi (normal, karena rebuild = OS fresh install)
-- SSH dengan key `Rakyat1945.pem` (yang di-generate otomatis via fitur "Create" di form Create NEO Lite) TETAP gagal: `Permission denied (publickey)` — bahkan setelah rebuild
-- File private key ada di Termux: `~/.ssh/Rakyat1945.pem` (permission 600 sudah diset)
-- Sedang mencoba reset password Console Access lagi untuk dicoba login via "Open Console" (browser terminal) — belum ada hasil konklusif saat checkpoint ini ditulis
-- **Kesimpulan kuat sekarang:** ini bukan human error dari user. Sudah dicoba: reset password berkali-kali, ganti SSH key 2x (manual import + auto-generate), restart, DAN rebuild penuh — semua tetap gagal. Ini indikasi kuat ada bug/masalah sistemik di platform Biznet Gio untuk service spesifik ini.
-- Support Biznet Gio sudah dihubungi via WhatsApp, sudah kasih beberapa saran (semua sudah dicoba: cek port dengan nmap [hasil: port 22 terbuka], ganti SSH key via portal, generate SSH key otomatis, rebuild instance) — belum ada solusi final dari mereka
-
-### Kalau sesi berikutnya lanjut dari sini:
-- JANGAN ulangi generate SSH key baru lagi atau rebuild lagi tanpa arahan baru dari support — sudah dicoba maksimal dari sisi user
-- Tanyakan ke user: apakah reset password Console yang terakhir dicoba berhasil, dan apakah ada balasan baru dari support Biznet Gio
-- Kalau masih gagal total dan support tidak bisa membantu lebih lanjut: pertimbangkan serius untuk PINDAH PROVIDER (IDCloudHost atau DomaiNesia, sudah ada di catatan alternatif) — jangan buang lebih banyak waktu di satu service yang bermasalah dari sisi platform
-- Kalau pindah provider: minta refund/komplain resmi ke Biznet Gio dulu kalau relevan (service tidak bisa diakses sejak awal karena bug platform, bukan salah user)
-
-## 14. Tool Development — Kapan Baru Relevan (Bukan Sekarang)
+## 12. Tool Development — Kapan Baru Relevan (Bukan Sekarang)
 
 Sudah dibahas dan diputuskan **ditunda**, bukan ditolak — dipakai nanti di fase yang sesuai:
 
@@ -205,35 +179,3 @@ Sudah dibahas dan diputuskan **ditunda**, bukan ditolak — dipakai nanti di fas
 | **Graphite** | Visualisasi stacked PR, review kode berbasis graph/node | Begitu ada banyak perubahan kode kecil yang saling ketergantungan, atau sudah ada tim/kolaborator review |
 
 **Prinsip umum:** jangan pasang tool baru sebelum ada kebutuhan nyata yang dia selesaikan — matched ke fase proyek saat itu, bukan ke rasa "biar canggih".
-## 13. Status Setup VPS & Troubleshooting Akses (3 Agustus 2026)
-
-- VPS Biznet Gio NEO Lite aktif & running (region West Java, Ubuntu 22.04)
-- **Blocker awal:** tidak bisa login ke Console Access (user `rakyat`) — selalu "Login incorrect", meski sudah reset password berkali-kali
-- Dashboard portal ternyata **tidak punya tombol reset password untuk Console Access** — hanya ada "Change SSH Key" untuk SSH Access
-- Coba jalur SSH pakai private key lama (`Rakyat1945.pem`) dari dashboard — juga gagal "Permission denied (publickey)", meski key valid dan ter-load sempurna setelah beberapa kali convert format (PEM → OpenSSH modern, hapus karakter `\r`)
-- Sudah kirim tiket ke support@biznetgio.com dengan detail teknis lengkap
-
-## 14. Solusi dari Support: Ganti Keypair — Masih Gagal (3 Agustus 2026)
-
-- Support Biznet Gio konfirmasi solusi: ganti keypair SSH lewat portal (bukan reset Console password)
-- Langkah yang sudah dilakukan sesuai instruksi resmi:
-  1. Generate keypair baru (ED25519) pakai `ssh-keygen -t ed25519 -f ~/fashion-platform-new -N ""` di Termux (bukan PuTTYGen, karena kerja dari HP Android)
-  2. Public key diupload ke portal (SSH Key > Add SSH Key), nama: `fashion-platform-new`
-  3. Keypair di-assign ke service via SSH Access > Change SSH Key > Confirm
-  4. Tunggu restart otomatis (~10 menit)
-  5. Test login: `ssh -i ~/fashion-platform-new rakyat@103.58.101.155`
-- **Hasil: TETAP "Permission denied (publickey)"** — sama seperti keypair lama
-- **Kesimpulan kuat:** baik Console Access, keypair lama, maupun keypair baru (sesuai prosedur resmi) semuanya gagal → root cause murni di sisi server/provider (kemungkinan proses update `authorized_keys` di VM tidak berjalan)
-- **Public key fingerprint yang dipakai:** `SHA256:Y+vmTWw5PysL4+0krODANzkpPPwVOzUKfdMb6xDU160`
-- **Status:** sudah reply tiket dengan detail hasil percobaan ini, menunggu eskalasi lebih lanjut dari support (kemungkinan perlu dicek manual dari sisi mereka)
-- Belum lanjut ke tahap hardening (SSH key, UFW, Fail2Ban) karena masih belum bisa masuk VPS sama sekali
-
-## 15. Catatan Teknis Termux (Referensi)
-
-- Kalau muncul error "type -1" saat SSH coba load private key (padahal `ssh-keygen -y` bisa baca key-nya), convert ulang formatnya pakai `ssh-keygen -p -N "" -f <keyfile>` (tanpa `-m PEM`) — convert ke format OpenSSH modern yang lebih kompatibel dengan OpenSSH versi baru (10.x di Termux)
-- Termux di HP ini punya masalah akses `/sdcard/Download/` langsung (permission denied meski izin storage sudah "Semua File") — solusinya copy-paste isi file manual lewat text editor + nano, bukan lewat `cp`/`ls` langsung ke storage
-
-## 16. Catatan Tool AI (Belum Relevan Sekarang)
-
-- Sempat ditanya soal MCP & "CLI AI" oleh teman — dikonfirmasi masih sesuai keputusan di bagian 12: ditunda sampai fase coding aktif
-- Opsi CLI AI coding assistant yang ada (buat referensi nanti kalau sudah waktunya): Claude Code, Gemini CLI, Codex CLI, Aider, Cursor
