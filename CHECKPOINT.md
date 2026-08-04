@@ -1,6 +1,6 @@
 # CHECKPOINT — Fashion Platform (Multi-Tenant SaaS)
 
-> Update terakhir: 4 Agustus 2026
+> Update terakhir: 4 Agustus 2026 (sore — setelah analisis kode LTOS lengkap)
 > Cara pakai: paste/replace isi file ini ke `CHECKPOINT.md` di repo GitHub kamu tiap selesai sesi. Sesi berikutnya (room manapun) tinggal kasih raw link file ini ke Claude sebelum mulai kerja, biar konteks lengkap tanpa perlu re-explain.
 
 ---
@@ -179,3 +179,74 @@ Sudah dibahas dan diputuskan **ditunda**, bukan ditolak — dipakai nanti di fas
 | **Graphite** | Visualisasi stacked PR, review kode berbasis graph/node | Begitu ada banyak perubahan kode kecil yang saling ketergantungan, atau sudah ada tim/kolaborator review |
 
 **Prinsip umum:** jangan pasang tool baru sebelum ada kebutuhan nyata yang dia selesaikan — matched ke fase proyek saat itu, bukan ke rasa "biar canggih".
+
+## 13. Analisis Kode LTOS Lama — Strategi Basis Backend
+
+**Keputusan besar:** kode backend LTOS (di `~/ltos/src` di Termux) **TIDAK dibuang** — dipakai sebagai basis/fondasi backend fashion-platform yang baru. Ini bukan proyek yang harus dimulai dari nol; sebagian besar konsep inti di checkpoint bagian 5-9 **sudah ada implementasinya** di LTOS, tinggal digeneralisasi dari single-tenant ke multi-tenant.
+
+### Struktur file LTOS (`~/ltos/src/`)
+- `schema.sql` — skema database inti (event store + projection)
+- `server.js` — Express app: REST endpoints, staff auth, lock system, WebSocket relay
+- `stateLayer.js` — logic apply event ke projection, dengan gap handling & optimistic locking
+- `versioning.js` — assign nomor versi event secara atomik (row lock + transaction)
+- `worker.js` — background job: gap monitor + bundle-split reconciler
+- `ingestion.js` — validasi & routing event masuk, termasuk logic reject/cancel sebagian (bundle allocation)
+- `db.js` — koneksi pool ke Postgres (Supabase)
+- `package.json` — dependency minimal: `express`, `ws`, `pg`
+
+### Pemetaan konsep: checkpoint (rencana) ↔ LTOS (implementasi existing)
+
+| Konsep di checkpoint | Status di LTOS | Catatan |
+|---|---|---|
+| `production_events` (event-sourced) | ✅ Ada, sangat matang | Tabel `events` + `state_version_tracker`, strict versioning per entity, replay-safe |
+| Gap/consistency handling | ✅ Ada | `pending_events` (buffer out-of-order), `gap_status` (state machine OPEN→RECOVERING→ESCALATED), auto-monitor tiap 10 detik |
+| Reject/cancel massal (bagian 8) | ✅ Ada, sudah di-refactor jadi general | `BUNDLE_ALLOCATION` — 1 bundle bisa dipecah jadi N bagian (reject/cancel) sekaligus, masing-masing dengan alasan & target stage sendiri. Evolusi dari versi awal `BUNDLE_SPLIT` yang cuma bisa 1-ke-2 |
+| Job locks | ✅ Ada | `order_locks` — staff cuma bisa pegang 1 order aktif (kecuali admin override pakai PIN), terikat ke `assigned_stage` staff |
+| Staff & role | ✅ Ada | Tabel `staff`, PIN login (`pgcrypto`), role admin/staff, session token 8 jam, rate limit brute-force (per staff_id + per IP) |
+| Real-time update | ✅ Ada | Postgres `LISTEN/NOTIFY` di-relay ke WebSocket — tidak butuh Redis/Kafka |
+| Pipeline stage per tenant (configurable) | ⚠️ Parsial | LTOS pakai `STAGE_ORDER` hardcode (fixed array). Rencana baru: `tenant_pipeline_stages`, configurable per tenant — perlu digeneralisasi |
+| Upload foto per stage | ✅ Ada | `production_stage_photos` — upload ke Supabase Storage, validasi stage & ukuran max 5MB |
+| Multi-tenant (`tenant_id`) | ❌ Belum ada | LTOS itu single-tenant (1 toko). **Ini kerjaan utama generalisasi**: semua tabel & query perlu ditambah `tenant_id` |
+| Billing per tenant | ❌ Belum ada | Perlu dibangun dari nol, tidak relevan di LTOS (single-tenant) |
+| WEB/consultation → `order_specs` | ❌ Belum ada di LTOS | LTOS sepertinya mulai dari titik order sudah masuk produksi, bukan dari konsultasi awal customer |
+
+### Pelajaran desain penting dari histori refactoring LTOS
+Ditemukan lewat file `fix_*.js` (script refactoring, bukan bug fix): LTOS awalnya pakai desain **`BUNDLE_SPLIT`** yang cuma bisa split 1 bundle jadi maksimal 2 bagian (lolos vs reject). Setelah dipakai, ketemu keterbatasan — realita sering butuh lebih dari 2 kemungkinan sekaligus (reject dengan beberapa alasan berbeda + cancel sebagian, dalam 1 bundle yang sama). Di-refactor jadi **`BUNDLE_ALLOCATION`** yang general (N alokasi sekaligus, tiap alokasi punya `type` reject/cancel + `reason` + `target_stage` sendiri).
+
+**Implikasi buat proyek baru:** langsung mulai dari desain `BUNDLE_ALLOCATION` (versi general), skip desain `BUNDLE_SPLIT` yang sudah terbukti kurang cukup — tidak perlu mengulang proses trial-error yang sama.
+
+### Environment variables yang dibutuhkan (nilai tersimpan di `.bashrc` Termux lama, JANGAN taruh di checkpoint/chat manapun ke depannya)
+- `DATABASE_URL` — koneksi Postgres (Supabase, region `ap-southeast-1`)
+- `SUPABASE_URL` — endpoint API Supabase
+- `SUPABASE_SECRET_KEY` — akses Supabase Storage (upload foto stage)
+- `API_KEY` — proteksi endpoint REST (custom, buat autentikasi server-to-server)
+- `PORT` — opsional, default 3000
+
+**Catatan keamanan:** kredensial di atas sempat ter-paste ke chat Claude saat proses eksplorasi (4 Agustus). Karena ini kredensial milik sendiri (bukan pihak lain), tidak wajib segera diganti, tapi disarankan **rotate password Supabase** di kemudian hari sebagai kebiasaan baik. Ke depan: environment variables harus disimpan di file `.env` terpisah + masuk `.gitignore`, tidak pernah ditulis ke `.bashrc` atau di-paste ke chat manapun (termasuk ke Claude).
+
+### Next steps — generalisasi LTOS ke multi-tenant
+- [ ] Copy struktur `schema.sql` LTOS jadi basis `fashion_platform_schema_v2.sql`, tambahkan `tenant_id` ke semua tabel projection (`order_state` → jadi bagian dari `production_jobs`), termasuk composite unique constraint yang melibatkan `tenant_id`
+- [ ] Adaptasi `stateLayer.js`, `versioning.js` — tambahkan `tenant_id` di semua query WHERE clause
+- [ ] Adaptasi `ingestion.js` — `STAGE_ORDER` hardcode diganti jadi query ke `tenant_pipeline_stages` (configurable per tenant)
+- [ ] Adaptasi `server.js` — semua endpoint perlu tenant resolver middleware (baca `tenant_id` dari subdomain, sesuai checkpoint bagian 3), staff/lock/session di-scope per tenant
+- [ ] `worker.js` (gap monitor, bundle reconciler) — pastikan advisory lock key tidak bentrok antar-tenant kalau nanti dijalankan sebagai 1 proses untuk semua tenant sekaligus
+- [ ] Belum ada di LTOS, perlu dibangun baru: `tenant_billing`, alur WEB/consultation → `order_specs`, `spec_substitution_requests` (ganti kain), `customer_decisions`, `customer_notifications`
+- [ ] File `fix_*.js` di root `~/ltos/` — sudah selesai dieksekusi (mengubah `BUNDLE_SPLIT` jadi `BUNDLE_ALLOCATION`), tidak perlu dijalankan lagi, aman diarsipkan/dihapus dari proyek baru
+- [ ] Belum dicek: `PROGRESS.md` (208KB, kemungkinan berisi catatan keputusan historis), `scanner.html` (UI staff, belum dilihat)
+
+### Hasil audit kode LTOS (4 Agustus 2026) — perbaikan saat generalisasi ke multi-tenant
+
+**Kekuatan yang harus dipertahankan:**
+- Parameterized queries di semua tempat → aman dari SQL injection
+- PIN staff di-hash pakai `pgcrypto` (`crypt()`), tidak disimpan plain text
+- Transaction + row lock (`FOR UPDATE`) di `versioning.js` → aman dari race condition antar-request bersamaan
+- Rate limiting brute-force PIN sudah ada (per staff_id + per IP)
+- Pesan error login tidak membocorkan apakah staff_id valid atau tidak (digabung jadi 1 pesan generik)
+
+**Perlu diperbaiki/disempurnakan saat generalisasi:**
+- [ ] **Rate limiter & session in-memory** (`rateLimitMap`, `sessionMap`, `rateBuckets` di `server.js`/`ingestion.js`) — cuma jalan benar kalau 1 instance server. Begitu proyek discale jadi multi-instance, harus pindah ke Redis (shared state antar-instance)
+- [ ] **API_KEY tunggal untuk semua endpoint** — perlu diubah jadi API key granular per tenant/integrasi, supaya kalau 1 key bocor, dampaknya cuma ke 1 tenant, bukan semua
+- [ ] **Validasi format input PIN** belum ada di endpoint login (tidak fatal, query tetap aman karena parameterized, tapi sebaiknya ditambah validasi panjang/format sebelum ke database)
+- [ ] **Logging penting** (login, lock override, force-unlock) saat ini cuma ke `console.error`/file log lokal. Sebaiknya event penting juga disimpan ke tabel database sendiri, supaya bisa diaudit tanpa perlu SSH ke server tiap tenant
+
+**Kesimpulan audit:** tidak ditemukan celah keamanan fatal. Semua temuan bersifat "perlu disempurnakan untuk skala multi-tenant", bukan kesalahan mendasar. Kode ini layak dijadikan basis backend proyek baru.
