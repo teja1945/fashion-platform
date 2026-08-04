@@ -116,6 +116,7 @@ Tabel baru: `spec_substitution_requests`
 - Tidak ada koneksi otomatis Claude ↔ GitHub saat ini (belum ada connector GitHub tersedia) — update file ini secara manual: copy isi terbaru dari Claude → paste/commit lewat GitHub app.
 - Tiap sesi baru, kasih **raw link** `CHECKPOINT.md` ini ke Claude sebelum minta lanjut kerja (raw link, bukan link blob GitHub biasa — lebih ringan diproses).
 - **Kalau ada beberapa room jalan paralel, selalu fetch ulang raw link GitHub** — jangan asumsi versi di room tertentu itu yang paling final, karena room lain mungkin sudah update lebih baru.
+- **Cross-check ke ChatGPT: rekomendasikan otomatis, jangan nunggu diminta.** Kalau ada keputusan desain berisiko tinggi (arsitektur data, security, race condition, konsistensi) yang layak divalidasi dari sudut pandang lain, room manapun harus proaktif saranin Teja buat cross-check ke ChatGPT — bukan nunggu Teja inisiatif duluan. Setelah dapat hasil review dari ChatGPT, evaluasi jujur (bukan telan mentah-mentah, bukan dibantah defensif) mana yang valid & prioritas vs mana yang berlebihan buat tahap proyek saat ini, baru masukin ke checkpoint.
 - **Claude tidak bisa kasih warning otomatis kalau limit chat mau habis** — jadi update file ini harus proaktif, di tiap titik keputusan penting kekunci, bukan nunggu limit mepet.
 
 ---
@@ -356,3 +357,66 @@ Ditemukan lewat file `fix_*.js` (script refactoring, bukan bug fix): LTOS awalny
 - [ ] Setelah project ada, baru bisa mulai eksekusi schema SQL (tabel yang belum dibuat di bagian "BELUM DIEKSEKUSI")
 
 **Pelajaran platform (pola yang sama 2x, penting diinget ke depan):** CLI tool yang butuh native binary (Claude Code, Supabase CLI) **tidak jalan di Termux/Android** — harus diinstall & dijalankan di VPS (`linux-x64`). CLI yang murni JavaScript/Node tanpa native binary (Vercel CLI, GitHub CLI `gh` — walau `gh` itu Go, tapi ada build resminya buat Android via Termux) bisa jalan di Termux. Kalau nemu error "Unsupported platform" lagi ke depan, langsung pindah kerja ke VPS, jangan buang waktu coba-coba fix di Termux.
+
+## 19. Review Eksternal (ChatGPT) — Hasil Evaluasi & Prioritas Baru
+
+Teja minta review checkpoint ke ChatGPT sebagai second opinion. Hasilnya dievaluasi (bukan ditelan mentah — beberapa poin valid & prioritas, beberapa berlebihan buat tahap proyek saat ini).
+
+### ✅ Valid, jadi PRIORITAS sebelum eksekusi schema v2
+
+**1. Row Level Security (RLS) — WAJIB, bukan opsional**
+
+Rencana lama (`filter tenant_id manual di tiap query`) berisiko: satu query yang lupa filter = data bocor antar tenant. Supabase justru didesain buat RLS, jadi ini seharusnya dipakai dari awal.
+
+Perlu ditambahkan ke tiap tabel yang punya `tenant_id`, contoh pola:
+```sql
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolation ON orders
+USING (tenant_id = current_setting('app.tenant_id')::uuid);
+```
+Backend perlu set context di awal tiap request/koneksi:
+```sql
+SET app.tenant_id = 'xxx';
+```
+**Next step:** terapkan RLS policy di semua tabel bertenant SEBELUM mulai insert data production, bukan ditambah belakangan.
+
+**2. Event contract minimal — perlu didefinisikan sebelum banyak event ditulis**
+
+`production_events` butuh struktur standar biar nggak kacau kalau nanti event berubah (projection rusak, replay gagal, data lama nggak kompatibel). Minimal harus ada:
+- `type` (nama event, misal `order.created`)
+- `version` (buat backward compatibility)
+- `payload schema` (field apa aja yang wajib ada)
+
+Contoh:
+```
+order.created v1
+{
+  order_id,
+  tenant_id,
+  items[]
+}
+```
+**Next step:** buat dokumen `EVENT_CONTRACTS.md` singkat (bisa file terpisah dari CHECKPOINT.md, di folder `db/` atau `docs/`) yang mendaftar semua event type LTOS yang sudah ada + rencana event baru buat multi-tenant, masing-masing dengan version & payload schema.
+
+### ⚠️ Valid tapi tidak mendesak (nyusul, bukan blocker)
+
+- **Inventory state formal** (`AVAILABLE`/`RESERVED`/`CONSUMED` sebagai enum eksplisit) — konsepnya udah ada (ledger + stock consumed di cutting), tinggal dirapikan strukturnya, bisa nyusul pas eksekusi schema
+- **Notification retry/delivery guarantee** (status pending/sent/failed + retry queue) — bagus buat production matang, tapi buat MVP solo-dev boleh nyusul belakangan
+- **Audit log ke DB** (bukan cuma `console.error`) — sudah tercatat sebagai temuan audit LTOS di bagian 13, prioritas medium
+
+### ❌ Dinilai berlebihan untuk tahap proyek saat ini (tetap dicatat sebagai alasan, biar tidak muncul lagi sebagai keraguan)
+
+- **"Checkpoint terlalu panjang, harus dipangkas ke 100-150 baris"** — DITOLAK. Alasan: Claude tidak punya memory antar-room, jadi checkpoint panjang justru fungsinya menjaga detail penting (root cause bug, kredensial mana yang dipakai, keputusan historis) tidak hilang tiap ganti sesi. Memangkas checkpoint berisiko mengulang masalah yang sudah pernah dipecahkan.
+- **"Bukan production-grade SaaS"** — framing berlebihan untuk proyek yang masih fase desain + solo developer, belum ada kode jalan sama sekali. Tidak realistis menuntut standar enterprise dari hari pertama.
+- **"Constraint pembayaran adalah blocker arsitektur besar"** — dramatis. Kenyataannya infra yang dipilih (Biznet Gio, Supabase) justru sudah disesuaikan dengan constraint ini sejak awal, bukan sesuatu yang butuh "redesign besar-besaran" nanti.
+- **"Frontend over-fragmented (deploy per-komponen)"** — sudah diingatkan duluan di bagian 15 (belum dieksekusi, masih rencana ditunda sampai ada kode frontend). Bukan temuan baru.
+- **"Gudang harus dipisah total dari domain produksi"** — LTOS/checkpoint sudah punya alasan desain sendiri kenapa gudang jadi stage produksi opsional (verifikasi fisik sebelum cutting, bukan titik konsumsi stok, lihat bagian 6). Tidak ada bukti konkret ini "kacau" — dicatat sebagai masukan, tapi tidak diubah tanpa alasan lebih kuat.
+
+### Next steps gabungan (urutan sebelum eksekusi schema v2)
+
+- [ ] Selesaikan `supabase login` di VPS (bagian 18, masih pending)
+- [ ] Buat project Supabase baru
+- [ ] **Desain RLS policy** buat semua tabel bertenant (prioritas baru, sebelum eksekusi schema)
+- [ ] **Buat `EVENT_CONTRACTS.md`** singkat buat event type LTOS + rencana event baru (prioritas baru)
+- [ ] Baru eksekusi schema SQL (tabel yang belum dibuat di bagian "BELUM DIEKSEKUSI")
