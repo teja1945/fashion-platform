@@ -420,3 +420,30 @@ order.created v1
 - [ ] **Desain RLS policy** buat semua tabel bertenant (prioritas baru, sebelum eksekusi schema)
 - [ ] **Buat `EVENT_CONTRACTS.md`** singkat buat event type LTOS + rencana event baru (prioritas baru)
 - [ ] Baru eksekusi schema SQL (tabel yang belum dibuat di bagian "BELUM DIEKSEKUSI")
+
+## 20. TEMUAN URGENT — RLS Mati di Project Supabase LTOS Lama (5 Agustus 2026)
+
+**Status: BELUM DIPERBAIKI — prioritas paling mendesak, di atas semua next steps lain.**
+
+### Kronologi
+- `supabase login` di VPS akhirnya berhasil (setelah percobaan pertama macet/hang di terminal — kalau kejadian lagi, exit total Termux & SSH ulang, jangan tunggu lama)
+- `supabase projects list` menampilkan **2 project existing** di akun Supabase Teja:
+
+| Nama | Reference ID | Org ID | Region | Dibuat | Status |
+|---|---|---|---|---|---|
+| **Ltos backend** | `dyqnjfaylhzumfahmmht` | `hvzykdiwzwpkfbwughnc` | Southeast Asia (Singapore) | 22 Juli 2026 | ⚠️ **RLS MATI, aktif dipakai** |
+| **supabase-red-lamp** | `qhyvbuhqzdnzbpjmijas` | `vercel_icfg_c6O4HNLB42WE6eX1kiEN0NfQ` | East US (North Virginia) | 3 Agustus 2026 | Kemungkinan dibuat oleh teman Teja lewat integrasi Vercel — **belum dikonfirmasi tujuannya**, JANGAN diubah/dihapus sampai dikonfirmasi ke teman ybs |
+
+- Supabase mengirim email otomatis (security advisor) 3 Agustus 2026: project **"Ltos backend"** punya tabel dengan **Row Level Security (RLS) tidak aktif** — kode isu: `rls_disabled_in_public`. Artinya siapapun yang tahu URL project bisa baca/edit/hapus semua data di tabel tersebut tanpa autentikasi.
+- **Dikonfirmasi Teja: "Ltos backend" adalah project yang benar-benar dipakai LTOS aktif** (data operasional nyata, bukan testing/kosong) — project inilah yang dipakai backend LTOS di Termux/HP selama ini.
+
+### Kenapa ini berbeda dari isu Vercel-GitHub-Supabase yang tadinya dikira "berbahaya"
+Sempat ada kekhawatiran soal koneksi Supabase↔Vercel↔GitHub (setup dari teman) itu berbahaya — **sudah diklarifikasi TIDAK**, itu integrasi normal dan aman. Masalah RLS ini murni isu terpisah, spesifik ke 1 project (`Ltos backend`) yang memang belum pernah diaktifkan RLS-nya sejak awal dibuat, tidak ada hubungannya dengan integrasi Vercel/GitHub.
+
+### Next steps (URGENT, prioritas #1 sebelum kerjaan lain apapun)
+- [ ] Link CLI ke project Ltos backend: `supabase link --project-ref dyqnjfaylhzumfahmmht`
+- [ ] Cek daftar tabel yang kena `rls_disabled_in_public` (bisa lewat CLI atau dashboard Supabase → Advisors)
+- [ ] Aktifkan RLS di semua tabel tersebut: `ALTER TABLE <nama_tabel> ENABLE ROW LEVEL SECURITY;`
+- [ ] Buat policy yang sesuai (minimal policy dasar dulu supaya aplikasi LTOS tetap bisa jalan — perlu hati-hati, jangan sampai RLS malah bikin LTOS yang aktif dipakai jadi error/berhenti berfungsi. Idealnya test di jam yang tidak mengganggu operasional kalau LTOS sedang dipakai untuk transaksi nyata)
+- [ ] Setelah `Ltos backend` aman, baru lanjut: buat project Supabase baru khusus `fashion-platform`
+- [ ] Follow-up terpisah (tidak urgent): tanya ke teman Teja soal tujuan `supabase-red-lamp` — apakah untuk fashion-platform juga, project lain, atau sisa testing yang bisa dihapus
