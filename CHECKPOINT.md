@@ -29,7 +29,7 @@ Platform multi-tenant SaaS untuk bisnis fashion — **bukan** duplikat-per-brand
 
 - VPS aktif dan sudah **fully secured via SSH key** (lihat bagian 11 — hardening SSH selesai)
 - Setup infra dilakukan **sebelum** mulai coding versi baru
-- LTOS lama tetap di Termux sebagai proyek terpisah, tidak diganggu
+- **LTOS (proyek lama di Termux) sudah TIDAK dipakai/dikembangkan lagi** — statusnya bukan "proyek terpisah yang tetap jalan" seperti rencana awal, melainkan **dihentikan sepenuhnya**. Tujuannya sekarang murni sebagai basis kode yang disempurnakan jadi `fashion-platform` (lihat bagian 13). Tidak ada operasional/transaksi baru yang berjalan lewat LTOS lagi.
 
 ## 5. Skema Database v2
 
@@ -436,6 +436,7 @@ order.created v1
 
 - Supabase mengirim email otomatis (security advisor) 3 Agustus 2026: project **"Ltos backend"** punya tabel dengan **Row Level Security (RLS) tidak aktif** — kode isu: `rls_disabled_in_public`. Artinya siapapun yang tahu URL project bisa baca/edit/hapus semua data di tabel tersebut tanpa autentikasi.
 - **Dikonfirmasi Teja: "Ltos backend" adalah project yang benar-benar dipakai LTOS aktif** (data operasional nyata, bukan testing/kosong) — project inilah yang dipakai backend LTOS di Termux/HP selama ini.
+- **Update 5 Agustus 2026 (sore):** Teja mengonfirmasi LTOS **sudah tidak dipakai/dikembangkan lagi** secara operasional — kode-nya murni jadi basis `fashion-platform` (lihat bagian 4 & 13). **Meskipun begitu, RLS tetap harus diperbaiki** — project `Ltos backend` masih menyimpan data historis nyata (bukan test data), dan selama project itu masih ada/aktif di Supabase, data di dalamnya tetap rentan diakses publik sampai RLS diaktifkan. Berhenti dipakai secara operasional tidak menghilangkan risiko keamanan datanya.
 
 ### Kenapa ini berbeda dari isu Vercel-GitHub-Supabase yang tadinya dikira "berbahaya"
 Sempat ada kekhawatiran soal koneksi Supabase↔Vercel↔GitHub (setup dari teman) itu berbahaya — **sudah diklarifikasi TIDAK**, itu integrasi normal dan aman. Masalah RLS ini murni isu terpisah, spesifik ke 1 project (`Ltos backend`) yang memang belum pernah diaktifkan RLS-nya sejak awal dibuat, tidak ada hubungannya dengan integrasi Vercel/GitHub.
