@@ -292,9 +292,9 @@ Ditemukan lewat file `fix_*.js` (script refactoring, bukan bug fix): LTOS awalny
 
 **Akun yang sudah tersedia (belum dipakai):** GitHub, Supabase, Vercel — ketiganya sudah punya akun, tinggal connect CLI di Termux/VPS satu-satu begitu masing-masing relevan dipakai (GitHub: sekarang, buat push checkpoint & kode; Supabase: sekarang, buat setup database yang sudah lama tertunda; Vercel: nanti, begitu ada kode frontend).
 
-## 16. Percobaan Claude Code — Status: SEDANG BERJALAN (belum kelar, disambung room lain)
+## 16. Percobaan Claude Code — SELESAI DICOBA, Hasil: Kebentur Pembayaran (Sesuai Dugaan Bagian 10)
 
-**Konteks:** ingin coba pasang Claude Code buat lihat sendiri sejauh mana bisa dipakai tanpa kartu internasional (bagian 10), daripada cuma nebak-nebak dari asumsi.
+**Konteks:** dicoba langsung (bukan cuma nebak dari asumsi) buat lihat sejauh mana Claude Code bisa dipakai tanpa kartu internasional.
 
 ### Percobaan 1 — di Termux: GAGAL, platform tidak didukung
 - `npm install -g @anthropic-ai/claude-code` — berhasil install package, tapi ada warning postinstall script belum jalan
@@ -305,8 +305,8 @@ Ditemukan lewat file `fix_*.js` (script refactoring, bukan bug fix): LTOS awalny
   ```
 - **Kesimpulan:** Termux di HP ini jalan di arsitektur **android arm (32-bit)**, bukan arm64 — Claude Code tidak punya native binary untuk itu. **Claude Code TIDAK BISA dipasang langsung di Termux/HP ini.**
 
-### Percobaan 2 — di VPS: BERHASIL sejauh ini, masih proses onboarding
-- VPS pakai `linux-x64` — platform yang didukung
+### Percobaan 2 — di VPS: berhasil sampai proses instalasi, kebentur di login
+- VPS pakai `linux-x64` — platform yang didukung, instalasi lancar
 - **Install Node.js 20 LTS di VPS** (belum ada sebelumnya) — sukses:
   ```
   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
@@ -317,45 +317,17 @@ Ditemukan lewat file `fix_*.js` (script refactoring, bukan bug fix): LTOS awalny
   ```
   sudo npm install -g @anthropic-ai/claude-code
   ```
-- Jalanin `claude` — **berhasil start**, masuk ke onboarding wizard (pilih tema tampilan). Belum sampai ke tahap login/autentikasi Anthropic — jadi **belum ketahuan apakah kartu internasional (bagian 10) beneran jadi penghalang atau tidak**.
+- Jalanin `claude` — berhasil start, lewatin onboarding (pilih tema tampilan) — **lanjut ke step login/subscription, dan di situ kebentur**: butuh pembayaran yang belum bisa diakses, sesuai constraint kartu internasional di bagian 10.
 
-### Next steps (lanjutkan di room berikutnya, dari titik ini)
-- [ ] Lanjutkan onboarding `claude` di VPS (posisi terakhir: baru pilih tema tampilan, tekan Enter buat pakai default Dark mode)
-- [ ] Lihat apa langkah setelah tema — dugaan kuat berikutnya adalah step **login/autentikasi** (API key atau OAuth ke akun Anthropic)
-- [ ] **Titik kritis yang ingin diketahui:** apakah login/subscription Claude Code benar-benar kebentur constraint kartu (bagian 10), atau ada opsi lain (misal API key dari Anthropic Console yang metode pembayarannya beda dari subscription Pro)
-- [ ] Kalau ternyata kebentur pembayaran juga: kembali ke rencana semula (Claude Code ditunda, bagian 12), lanjut kerja pakai `gh` CLI (belum login) + Supabase CLI (belum diinstall) buat generalisasi schema/backend LTOS
-- [ ] Kalau ternyata BISA jalan (ada jalur pembayaran yang works): ini bisa mengubah banyak rencana di bagian 12 — Claude Code bisa dipakai langsung di VPS buat bantu coding backend generalisasi LTOS
+### Kesimpulan final
+**Dikonfirmasi langsung (bukan asumsi lagi):** Claude Code memang butuh subscription/pembayaran yang saat ini nggak bisa diakses karena constraint kartu (bagian 10). Ini bukan soal platform/teknis lagi (VPS-nya support), murni soal metode pembayaran.
 
-**Catatan penting:** proses ini masih di tengah jalan saat sesi berakhir (limit chat habis). Room berikutnya tinggal lanjut dari `claude` yang masih standby di posisi pilihan tema — SSH ke VPS lagi (`ssh Rakyat@103.58.101.155`), lalu kemungkinan perlu jalanin `claude` ulang kalau sesi terminal sebelumnya sudah putus.
-## 14. Update Sesi 4 Agustus 2026 (malam) — Tooling & Deploy
+**Keputusan:** kembali ke rencana semula — Claude Code **resmi ditunda** (bukan dihapus dari rencana, bagian 12), sampai ada solusi kartu internasional atau proyek sudah generate income.
 
-### GitHub CLI — SELESAI
-- `gh` CLI berhasil terinstall di VPS (`gh 2.97.0`)
-- `gh auth login` berhasil — authorize via web browser + email verification, status **Connected** ke akun `teja1945`
-- Protokol: HTTPS, Git credentials: authenticated
+**Yang tetap berguna dari percobaan ini:** VPS sekarang sudah punya **Node.js 20 LTS terinstall** — ini memang dibutuhkan buat backend Node.js proyek nantinya, jadi bukan kerjaan sia-sia. Item "Install Node.js 20 LTS" di checklist hardening bagian 11 bisa dicentang selesai.
 
-### Supabase CLI — BELUM
-- Belum diinstall (langkah selanjutnya: `curl -Lo supabase.deb ...` + `sudo dpkg -i supabase.deb`)
-
-### Claude Code — MENTOK di step login
-- Berhasil terinstall (`v2.1.197`) di VPS
-- Mentok di step "Select login method" — ketiga opsi (Pro/Max subscription, Console API usage, 3rd-party Bedrock/Foundry/Vertex) semua butuh kartu internasional yang belum tersedia
-- **Ditunda** sesuai keputusan awal (bagian 12) — proses instalasi selesai, tinggal lanjut auth begitu ada jalur pembayaran
-
-### TEMUAN PENTING — Vercel ternyata SUDAH aktif (perlu klarifikasi)
-- Screenshot repo GitHub menunjukkan: **4 deployments**, link live `fashion-platform-six.vercel.app`, status **Production aktif**
-- Ini KONTRADIKSI dengan status checkpoint sebelumnya ("belum dieksekusi, belum ada kode frontend")
-- **Perlu dicek user**: apakah ini setup lama yang lupa dicatat, atau demo/placeholder yang di-deploy teman, atau salah repo?
-
-## 15. Rencana Deploy Frontend — Vercel (dari input teman, lihat catatan di atas soal status aktual)
-- Sumber: masukan teman, bukan keputusan Claude sepihak
-- Deploy per-komponen (bukan 1 project besar) — sejalan dengan arsitektur componentized blocks (bagian 1)
-- Auto-deploy dari GitHub tiap push, backend tetap di VPS Biznet Gio
-- Akun GitHub, Supabase, Vercel — ketiganya **sudah ada**, tinggal connect CLI satu-satu sesuai relevansi
-- Alasan per-komponen: isolasi bug/rollback per blok, tapi perlu penamaan konsisten + komunikasi antar-komponen lewat backend API (bukan saling panggil langsung)
-
-### Next steps
-- [ ] Cek/klarifikasi kontradiksi status Vercel (lihat temuan di atas)
-- [ ] Install Supabase CLI
-- [ ] Setup database Supabase (masih lama tertunda)
-- [ ] Lanjut hardening SSH (key-only, UFW, Fail2Ban) — masih belum dikerjakan
+### Next steps — lanjut ke jalur utama tanpa Claude Code
+- [ ] Login `gh` CLI di Termux — **SELESAI**, akun `teja1945`, token scope `repo` aktif
+- [ ] Clone repo ke Termux — **SELESAI**, `gh repo clone teja1945/fashion-platform`
+- [ ] Install & setup Supabase CLI
+- [ ] Mulai generalisasi schema LTOS ke multi-tenant (lihat next steps detail di bagian 13)
