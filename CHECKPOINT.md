@@ -497,3 +497,37 @@ Saat diminta password database, **kosongkan (langsung Enter)** — biar Supabase
 - [ ] Desain RLS policy untuk semua tabel bertenant (prioritas dari review ChatGPT, bagian 19) — dilakukan bersamaan saat menulis schema, bukan ditambah belakangan
 - [ ] Buat `EVENT_CONTRACTS.md` (bagian 19)
 - [ ] Baru eksekusi schema SQL v2 (tabel yang belum dibuat di bagian "BELUM DIEKSEKUSI")
+
+## 22. Keputusan Arsitektur — RLS + Koneksi Database (5 Agustus 2026)
+
+**Keputusan:** backend tetap pakai `pg` langsung (bukan pindah ke `@supabase/supabase-js`), sama seperti LTOS. Alasan: LTOS sudah pakai `pg`, pindah client library berarti nulis ulang seluruh layer database (kerja dobel tidak perlu), dan `pg` memberi kontrol penuh untuk transaction, row lock (`FOR UPDATE`), dan `LISTEN/NOTIFY` yang sudah dipakai LTOS.
+
+### Pola penerapan RLS dengan connection pool
+
+Karena backend pakai connection pool (banyak request bergantian pakai koneksi yang sama), **wajib pakai `SET LOCAL` di dalam transaction**, bukan `SET` biasa — supaya `tenant_id` tidak "nyangkut" ke request lain yang kebetulan pakai koneksi yang sama. `SET LOCAL` otomatis reset begitu transaction selesai.
+
+Pola standar untuk semua query yang butuh tenant context:
+```javascript
+const client = await pool.connect();
+try {
+  await client.query('BEGIN');
+  await client.query(`SET LOCAL app.tenant_id = $1`, [tenantId]);
+  // ... query-query lain yang butuh tenant_id di sini, RLS otomatis aktif
+  await client.query('COMMIT');
+} catch (err) {
+  await client.query('ROLLBACK');
+  throw err;
+} finally {
+  client.release();
+}
+```
+
+### ⚠️ Hal yang wajib diperhatikan saat implementasi (supaya RLS benar-benar efektif, bukan cuma dekorasi)
+
+RLS + pola di atas ini **benar secara arsitektur**, tapi efektivitasnya bergantung pada disiplin implementasi. Tiga hal wajib diperhatikan:
+
+1. **Wajib selalu di dalam transaction** — kalau ada query yang dijalankan di luar pola `BEGIN...SET LOCAL...COMMIT`, RLS tidak berlaku dengan benar untuk query itu, berisiko tembus ke data tenant lain. Ini soal disiplin coding tiap kali menulis query baru, bukan kelemahan Postgres.
+2. **Role database aplikasi tidak boleh punya privilege `BYPASSRLS`** — kalau backend connect pakai role superuser/admin (misal default user `postgres`), RLS otomatis dilewati sepenuhnya tanpa error. Wajib buat role khusus untuk aplikasi yang tidak punya privilege bypass ini sebelum production.
+3. **Wajib ditest tiap ada perubahan schema** — policy RLS gampang salah desain (terlalu ketat sampai user sendiri tidak bisa akses datanya, atau terlalu longgar sehingga tetap bocor). Perlu ada rutinitas test manual (coba akses data tenant A pakai context tenant B, harus gagal) tiap kali nambah tabel atau ubah policy.
+
+**Kesimpulan:** pola ini solid dan lazim dipakai di sistem production sungguhan, bukan eksperimen. Tapi bukan "pasang sekali lalu aman selamanya" — attention ke 3 poin di atas wajib jadi bagian dari checklist tiap kali menulis kode yang menyentuh database.
