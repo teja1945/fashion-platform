@@ -331,3 +331,28 @@ Ditemukan lewat file `fix_*.js` (script refactoring, bukan bug fix): LTOS awalny
 - [ ] Clone repo ke Termux — **SELESAI**, `gh repo clone teja1945/fashion-platform`
 - [ ] Install & setup Supabase CLI
 - [ ] Mulai generalisasi schema LTOS ke multi-tenant (lihat next steps detail di bagian 13)
+
+## 17. Vercel — Terkonfirmasi Sudah Terhubung ke Repo
+
+- Vercel CLI diinstall & login berhasil di **Termux** (bukan VPS — platform android didukung untuk Vercel, beda dari Claude Code/Supabase yang tidak)
+- Akun: `teja1945`, team `teja1945s-projects`
+- **Project `fashion-platform` sudah ada di Vercel dan terhubung ke repo GitHub** (dicek via `vercel inspect`) — auto-deploy dari branch `main` sudah aktif (alias `fashion-platform-git-main-teja1945s-projects.vercel.app` mengonfirmasi ini), sesuai yang disebut teman Teja sebelumnya
+- URL production: `https://fashion-platform-six.vercel.app` — saat ini **404**, itu **wajar**, karena repo belum ada kode frontend sama sekali (baru `CHECKPOINT.md` + `README.md`). Begitu ada kode frontend di-push ke `main`, otomatis ke-build & ke-deploy
+- **Klarifikasi peran Vercel vs Supabase** (sempat ditanyakan): Vercel = hosting frontend saja. Supabase = database + storage. Keduanya dibutuhkan, bukan saling menggantikan — sudah dikonfirmasi ke Teja bahwa Supabase tetap dipakai sesuai rencana awal (bukan diganti Vercel Postgres/Neon)
+
+## 18. Supabase CLI — Instalasi & Login (BELUM SELESAI)
+
+- Percobaan install di **Termux: GAGAL**, sama seperti Claude Code — error `Unsupported platform: android`. Supabase CLI juga tidak punya native binary untuk Android/Termux.
+- **Install di VPS: BERHASIL** (`sudo npm install -g supabase` — perlu `sudo` karena user `Rakyat` bukan root, beda dari Termux)
+- `supabase login` dijalankan di VPS — proses OAuth device-link ke `supabase.com/dashboard/cli/login`, link dan verification code sudah muncul di terminal
+- **STATUS SAAT SESI BERAKHIR: login belum selesai** — Teja belum sempat buka link di browser dan masukin verification code sebelum limit chat habis
+
+### Next steps (lanjutkan di room berikutnya)
+- [ ] SSH ke VPS lagi (`ssh Rakyat@103.58.101.155`)
+- [ ] Cek apakah proses `supabase login` sebelumnya masih standby menunggu kode, atau sudah timeout (kemungkinan besar timeout karena sesi terminal terputus) — kalau timeout, jalankan ulang `supabase login` dari awal
+- [ ] Selesaikan login: buka link di browser → masukkan verification code di terminal
+- [ ] Setelah login berhasil, verifikasi dengan `supabase projects list`
+- [ ] Buat project Supabase baru khusus fashion-platform (belum ada project Supabase sama sekali untuk proyek ini — masih 100% belum di-setup)
+- [ ] Setelah project ada, baru bisa mulai eksekusi schema SQL (tabel yang belum dibuat di bagian "BELUM DIEKSEKUSI")
+
+**Pelajaran platform (pola yang sama 2x, penting diinget ke depan):** CLI tool yang butuh native binary (Claude Code, Supabase CLI) **tidak jalan di Termux/Android** — harus diinstall & dijalankan di VPS (`linux-x64`). CLI yang murni JavaScript/Node tanpa native binary (Vercel CLI, GitHub CLI `gh` — walau `gh` itu Go, tapi ada build resminya buat Android via Termux) bisa jalan di Termux. Kalau nemu error "Unsupported platform" lagi ke depan, langsung pindah kerja ke VPS, jangan buang waktu coba-coba fix di Termux.
