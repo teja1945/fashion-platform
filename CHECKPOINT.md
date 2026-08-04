@@ -468,3 +468,32 @@ Karena LTOS sudah tidak dipakai operasional, solusi paling aman: aktifkan RLS di
 - [ ] (Prioritas rendah, tidak urgent) Perbaiki warning `function_search_path_mutable` di fungsi `notify_order_state_change` — tambahkan `SET search_path = public` di definisi fungsi
 - [ ] Buat project Supabase baru khusus `fashion-platform` (project `Ltos backend` yang sudah diamankan ini TIDAK dipakai untuk fashion-platform — cuma arsip data lama yang sekarang sudah aman)
 - [ ] Follow-up terpisah (tidak urgent): tanya ke teman Teja soal tujuan `supabase-red-lamp`
+
+## 21. Project Supabase Baru untuk `fashion-platform` — DIBUAT ✅ (5 Agustus 2026)
+
+**Reference ID:** `kwhybffbcqopqbbnuigg`
+**Region:** Southeast Asia (Singapore)
+**Dashboard:** https://supabase.com/dashboard/project/kwhybffbcqopqbbnuigg
+**Org ID:** `hvzykdiwzwpkfbwughnc` (sama dengan org Ltos backend lama)
+
+### Konteks — kena limit free tier dulu
+- Percobaan pertama bikin project baru **gagal**: akun Supabase free tier dibatasi **maksimal 2 project aktif** per organisasi. Saat itu sudah ada 2 project (`Ltos backend` + `supabase-red-lamp`), jadi tidak bisa bikin yang ketiga.
+- **Penting diklarifikasi:** limit ini soal **jumlah project terpisah**, BUKAN soal ukuran/kapasitas 1 project. Artinya `fashion-platform` sebagai 1 project besar tidak akan "kehabisan tempat" seiring berkembangnya proyek — limit 500MB storage di free tier itu longgar untuk fase awal, dan bisa upgrade ke Pro plan (~$25/bulan) kapan saja kalau sudah butuh lebih.
+- **Solusi:** `Ltos backend` di-**pause** lewat dashboard (bukan dihapus) — aman karena sudah dikonfirmasi tidak dipakai operasional lagi (bagian 4) dan datanya sudah dilindungi RLS (bagian 20). Bisa di-resume kapan saja sampai **9 September 2027**, setelah itu tidak bisa di-resume tapi data tetap bisa didownload.
+- `supabase-red-lamp` **tidak diutak-atik** — masih menunggu konfirmasi dari teman Teja soal tujuannya, karena itu bukan project milik Teja sepenuhnya (terhubung ke integrasi Vercel yang di-setup teman)
+
+### Cara membuat (untuk referensi/diulang di masa depan)
+```
+supabase projects create fashion-platform --org-id hvzykdiwzwpkfbwughnc --region ap-southeast-1
+```
+Saat diminta password database, **kosongkan (langsung Enter)** — biar Supabase generate password random yang aman otomatis, tidak perlu diketik manual atau di-paste ke chat manapun.
+
+### Status project sekarang
+- Project baru, **masih kosong** — belum ada tabel/schema apapun
+- Belum di-link ke CLI di VPS (project yang ter-link sekarang masih `Ltos backend` yang sudah di-pause)
+
+### Next steps
+- [ ] Link CLI ke project baru: `supabase link --project-ref kwhybffbcqopqbbnuigg`
+- [ ] Desain RLS policy untuk semua tabel bertenant (prioritas dari review ChatGPT, bagian 19) — dilakukan bersamaan saat menulis schema, bukan ditambah belakangan
+- [ ] Buat `EVENT_CONTRACTS.md` (bagian 19)
+- [ ] Baru eksekusi schema SQL v2 (tabel yang belum dibuat di bagian "BELUM DIEKSEKUSI")
