@@ -421,30 +421,50 @@ order.created v1
 - [ ] **Buat `EVENT_CONTRACTS.md`** singkat buat event type LTOS + rencana event baru (prioritas baru)
 - [ ] Baru eksekusi schema SQL (tabel yang belum dibuat di bagian "BELUM DIEKSEKUSI")
 
-## 20. TEMUAN URGENT — RLS Mati di Project Supabase LTOS Lama (5 Agustus 2026)
+## 20. RLS di Project Supabase LTOS Lama — SELESAI DIPERBAIKI ✅ (5 Agustus 2026)
 
-**Status: BELUM DIPERBAIKI — prioritas paling mendesak, di atas semua next steps lain.**
+**Status: BERES.** Semua tabel yang publik-accessible sekarang sudah aman.
 
 ### Kronologi
-- `supabase login` di VPS akhirnya berhasil (setelah percobaan pertama macet/hang di terminal — kalau kejadian lagi, exit total Termux & SSH ulang, jangan tunggu lama)
+- `supabase login` di VPS berhasil (percobaan kedua — percobaan pertama sempat macet/hang di terminal, solusinya: tutup paksa Termux, buka baru, SSH ulang, jangan tunggu lama kalau nyangkut)
 - `supabase projects list` menampilkan **2 project existing** di akun Supabase Teja:
 
 | Nama | Reference ID | Org ID | Region | Dibuat | Status |
 |---|---|---|---|---|---|
-| **Ltos backend** | `dyqnjfaylhzumfahmmht` | `hvzykdiwzwpkfbwughnc` | Southeast Asia (Singapore) | 22 Juli 2026 | ⚠️ **RLS MATI, aktif dipakai** |
-| **supabase-red-lamp** | `qhyvbuhqzdnzbpjmijas` | `vercel_icfg_c6O4HNLB42WE6eX1kiEN0NfQ` | East US (North Virginia) | 3 Agustus 2026 | Kemungkinan dibuat oleh teman Teja lewat integrasi Vercel — **belum dikonfirmasi tujuannya**, JANGAN diubah/dihapus sampai dikonfirmasi ke teman ybs |
+| **Ltos backend** | `dyqnjfaylhzumfahmmht` | `hvzykdiwzwpkfbwughnc` | Southeast Asia (Singapore) | 22 Juli 2026 | ✅ **RLS AKTIF, sudah diperbaiki** |
+| **supabase-red-lamp** | `qhyvbuhqzdnzbpjmijas` | `vercel_icfg_c6O4HNLB42WE6eX1kiEN0NfQ` | East US (North Virginia) | 3 Agustus 2026 | Kemungkinan dibuat teman Teja lewat integrasi Vercel — belum dikonfirmasi tujuannya, JANGAN diubah/dihapus sampai dikonfirmasi ke teman ybs |
 
-- Supabase mengirim email otomatis (security advisor) 3 Agustus 2026: project **"Ltos backend"** punya tabel dengan **Row Level Security (RLS) tidak aktif** — kode isu: `rls_disabled_in_public`. Artinya siapapun yang tahu URL project bisa baca/edit/hapus semua data di tabel tersebut tanpa autentikasi.
-- **Dikonfirmasi Teja: "Ltos backend" adalah project yang benar-benar dipakai LTOS aktif** (data operasional nyata, bukan testing/kosong) — project inilah yang dipakai backend LTOS di Termux/HP selama ini.
-- **Update 5 Agustus 2026 (sore):** Teja mengonfirmasi LTOS **sudah tidak dipakai/dikembangkan lagi** secara operasional — kode-nya murni jadi basis `fashion-platform` (lihat bagian 4 & 13). **Meskipun begitu, RLS tetap harus diperbaiki** — project `Ltos backend` masih menyimpan data historis nyata (bukan test data), dan selama project itu masih ada/aktif di Supabase, data di dalamnya tetap rentan diakses publik sampai RLS diaktifkan. Berhenti dipakai secara operasional tidak menghilangkan risiko keamanan datanya.
+- Email security advisor Supabase (3 Agustus 2026) memberi tahu: project **"Ltos backend"** punya banyak tabel dengan **RLS mati** (`rls_disabled_in_public`)
+- **Dikonfirmasi: LTOS sudah tidak dipakai/dikembangkan lagi secara operasional** (lihat bagian 4) — tapi project Supabase-nya masih menyimpan data historis nyata, jadi tetap perlu diamankan
 
-### Kenapa ini berbeda dari isu Vercel-GitHub-Supabase yang tadinya dikira "berbahaya"
-Sempat ada kekhawatiran soal koneksi Supabase↔Vercel↔GitHub (setup dari teman) itu berbahaya — **sudah diklarifikasi TIDAK**, itu integrasi normal dan aman. Masalah RLS ini murni isu terpisah, spesifik ke 1 project (`Ltos backend`) yang memang belum pernah diaktifkan RLS-nya sejak awal dibuat, tidak ada hubungannya dengan integrasi Vercel/GitHub.
+### Diagnosa lengkap via `supabase db advisors`
 
-### Next steps (URGENT, prioritas #1 sebelum kerjaan lain apapun)
-- [ ] Link CLI ke project Ltos backend: `supabase link --project-ref dyqnjfaylhzumfahmmht`
-- [ ] Cek daftar tabel yang kena `rls_disabled_in_public` (bisa lewat CLI atau dashboard Supabase → Advisors)
-- [ ] Aktifkan RLS di semua tabel tersebut: `ALTER TABLE <nama_tabel> ENABLE ROW LEVEL SECURITY;`
-- [ ] Buat policy yang sesuai (minimal policy dasar dulu supaya aplikasi LTOS tetap bisa jalan — perlu hati-hati, jangan sampai RLS malah bikin LTOS yang aktif dipakai jadi error/berhenti berfungsi. Idealnya test di jam yang tidak mengganggu operasional kalau LTOS sedang dipakai untuk transaksi nyata)
-- [ ] Setelah `Ltos backend` aman, baru lanjut: buat project Supabase baru khusus `fashion-platform`
-- [ ] Follow-up terpisah (tidak urgent): tanya ke teman Teja soal tujuan `supabase-red-lamp` — apakah untuk fashion-platform juga, project lain, atau sisa testing yang bisa dihapus
+```
+supabase link --project-ref dyqnjfaylhzumfahmmht
+supabase db advisors --linked --type security --level warn
+```
+
+Ditemukan **13 tabel** dengan RLS mati (bukan cuma 1 seperti dugaan awal dari email):
+`pending_events`, `events`, `request_dedup`, `state_version_tracker`, `gap_status`, `stale_event_log`, `action_execution_log`, `customer_orders`, `order_locks`, `staff`, `work_log`, `stage_photos`, `order_state`
+
+Plus 1 warning ringan (level WARN, bukan ERROR): fungsi `notify_order_state_change` punya `search_path` yang mutable — belum diperbaiki, prioritas rendah (tidak ada risiko akses data langsung, beda kategori dari RLS).
+
+### Fix yang dilakukan
+
+Karena LTOS sudah tidak dipakai operasional, solusi paling aman: aktifkan RLS di semua tabel **tanpa bikin policy tambahan** — ini otomatis menutup akses publik total lewat API (PostgREST), aman karena tidak ada aplikasi aktif yang connect ke situ.
+
+1. Install PostgreSQL client di VPS: `sudo apt install postgresql-client -y`
+2. Buat migration lewat Supabase CLI (bukan psql manual, supaya tercatat sebagai file migration resmi):
+   ```
+   supabase migration new enable_rls_ltos_backend
+   ```
+3. Isi file migration (`supabase/migrations/20260804230004_enable_rls_ltos_backend.sql`) dengan 13 baris `ALTER TABLE ... ENABLE ROW LEVEL SECURITY;` untuk semua tabel di atas
+4. Push migration ke database: `supabase db push` → konfirmasi Yes
+5. Verifikasi ulang: `supabase db advisors --linked --type security --level error` → **hasil: "No issues found"** ✅
+
+**File migration ini sekarang ada di VPS** (`~/supabase/migrations/20260804230004_enable_rls_ltos_backend.sql`) — belum di-push ke repo GitHub `fashion-platform` (project Supabase ini terpisah dari project Supabase yang akan dibuat khusus untuk `fashion-platform`, jadi migration file ini sifatnya arsip perbaikan darurat, bukan bagian dari schema v2 yang direncanakan).
+
+### Sisa next steps
+- [ ] (Prioritas rendah, tidak urgent) Perbaiki warning `function_search_path_mutable` di fungsi `notify_order_state_change` — tambahkan `SET search_path = public` di definisi fungsi
+- [ ] Buat project Supabase baru khusus `fashion-platform` (project `Ltos backend` yang sudah diamankan ini TIDAK dipakai untuk fashion-platform — cuma arsip data lama yang sekarang sudah aman)
+- [ ] Follow-up terpisah (tidak urgent): tanya ke teman Teja soal tujuan `supabase-red-lamp`
