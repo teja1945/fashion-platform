@@ -327,3 +327,35 @@ Ditemukan lewat file `fix_*.js` (script refactoring, bukan bug fix): LTOS awalny
 - [ ] Kalau ternyata BISA jalan (ada jalur pembayaran yang works): ini bisa mengubah banyak rencana di bagian 12 — Claude Code bisa dipakai langsung di VPS buat bantu coding backend generalisasi LTOS
 
 **Catatan penting:** proses ini masih di tengah jalan saat sesi berakhir (limit chat habis). Room berikutnya tinggal lanjut dari `claude` yang masih standby di posisi pilihan tema — SSH ke VPS lagi (`ssh Rakyat@103.58.101.155`), lalu kemungkinan perlu jalanin `claude` ulang kalau sesi terminal sebelumnya sudah putus.
+## 14. Update Sesi 4 Agustus 2026 (malam) — Tooling & Deploy
+
+### GitHub CLI — SELESAI
+- `gh` CLI berhasil terinstall di VPS (`gh 2.97.0`)
+- `gh auth login` berhasil — authorize via web browser + email verification, status **Connected** ke akun `teja1945`
+- Protokol: HTTPS, Git credentials: authenticated
+
+### Supabase CLI — BELUM
+- Belum diinstall (langkah selanjutnya: `curl -Lo supabase.deb ...` + `sudo dpkg -i supabase.deb`)
+
+### Claude Code — MENTOK di step login
+- Berhasil terinstall (`v2.1.197`) di VPS
+- Mentok di step "Select login method" — ketiga opsi (Pro/Max subscription, Console API usage, 3rd-party Bedrock/Foundry/Vertex) semua butuh kartu internasional yang belum tersedia
+- **Ditunda** sesuai keputusan awal (bagian 12) — proses instalasi selesai, tinggal lanjut auth begitu ada jalur pembayaran
+
+### TEMUAN PENTING — Vercel ternyata SUDAH aktif (perlu klarifikasi)
+- Screenshot repo GitHub menunjukkan: **4 deployments**, link live `fashion-platform-six.vercel.app`, status **Production aktif**
+- Ini KONTRADIKSI dengan status checkpoint sebelumnya ("belum dieksekusi, belum ada kode frontend")
+- **Perlu dicek user**: apakah ini setup lama yang lupa dicatat, atau demo/placeholder yang di-deploy teman, atau salah repo?
+
+## 15. Rencana Deploy Frontend — Vercel (dari input teman, lihat catatan di atas soal status aktual)
+- Sumber: masukan teman, bukan keputusan Claude sepihak
+- Deploy per-komponen (bukan 1 project besar) — sejalan dengan arsitektur componentized blocks (bagian 1)
+- Auto-deploy dari GitHub tiap push, backend tetap di VPS Biznet Gio
+- Akun GitHub, Supabase, Vercel — ketiganya **sudah ada**, tinggal connect CLI satu-satu sesuai relevansi
+- Alasan per-komponen: isolasi bug/rollback per blok, tapi perlu penamaan konsisten + komunikasi antar-komponen lewat backend API (bukan saling panggil langsung)
+
+### Next steps
+- [ ] Cek/klarifikasi kontradiksi status Vercel (lihat temuan di atas)
+- [ ] Install Supabase CLI
+- [ ] Setup database Supabase (masih lama tertunda)
+- [ ] Lanjut hardening SSH (key-only, UFW, Fail2Ban) — masih belum dikerjakan
