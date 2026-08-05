@@ -75,6 +75,44 @@ Tabel baru: `spec_substitution_requests`
 - CHOOSE_ALTERNATIVE
 
 ## 9. No-Response Handling
+## 24. Schema SQL v2 + Role `app_user` — SELESAI ✅ (5 Agustus 2026)
+
+**Status: BERES.** Semua tabel yang belum dieksekusi sudah dibuat dengan RLS, dan role database non-superuser sudah aktif.
+
+### Schema v2
+- File `db/fashion_platform_schema_v2.sql` dibuat: 19 tabel (schema inti + tabel baru `spec_substitution_requests`, `customer_decisions`, `customer_notifications`), semua dengan RLS langsung nempel di tiap `create table` (bukan ditambah belakangan), sesuai keputusan bagian 21
+- Migration `20260805023907_schema_v2_core.sql` di-push lewat `supabase db push`, sukses
+- **Ketemu masalah:** folder `supabase/migrations/` di VPS ternyata shared antara 2 project (LTOS lama + fashion-platform baru). File migration lama (`enable_rls_ltos_backend.sql`, bagian 20) ikut coba ke-push dan error karena tabelnya belum ada di project baru
+- **Fix:** file migration lama dipindah ke `~/archive-ltos-migrations/` (diarsipkan, bukan dihapus) sebelum push ulang — berhasil
+- Verifikasi: `supabase db advisors --linked --type security --level error` → **"No issues found"** ✅
+
+### Role `app_user` (poin wajib #2, bagian 22)
+- Role `app_user` dibuat lewat `psql`, TANPA privilege `BYPASSRLS` dan bukan superuser — diverifikasi: `rolbypassrls = f`, `rolsuper = f`
+- Grant: `SELECT, INSERT, UPDATE, DELETE` di semua tabel + default privileges untuk tabel baru ke depannya
+- Command dijalankan lewat file SQL (`/tmp/create_app_user.sql`), bukan diketik langsung di psql interaktif — psql interaktif di Termux sering "nyangkut" (masuk mode `>` terus-terusan) kalau ada tanda kutip/karakter panjang yang di-paste, jadi lebih aman bikin file dulu pakai `nano` lalu jalankan dengan `psql -f`
+- File sementara berisi password (`/tmp/create_app_user.sql`, `/tmp/mypassword.txt`) sudah dihapus pakai `shred -u` setelah selesai
+
+### Pelajaran penting — koneksi ke database Supabase dari VPS ini WAJIB pakai Session Pooler
+- VPS Biznet Gio ini tidak punya alamat IPv6 — cuma IPv4
+- Supabase "Direct connection" defaultnya cuma kasih host IPv6, jadi connect dari VPS ini SELALU gagal dengan error `Network is unreachable`
+- Solusi tetap: connect ke database Supabase manapun dari VPS ini harus pakai connection string mode Session pooler (bukan Direct connection), formatnya:
+
+```
+postgresql://postgres.<project-ref>:<password>@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres
+```
+
+- Ambil dari dashboard: Settings -> Database -> Connect -> pilih "Session pooler" (bukan "Direct connection" yang jadi default)
+- Kalau nanti butuh koneksi database lagi dari VPS ini (untuk project Supabase manapun), langsung pakai Session pooler dari awal, jangan coba Direct connection dulu — sudah pasti gagal karena keterbatasan jaringan VPS ini
+
+### Database password project fashion-platform
+- Password database (`postgres` role) di-reset hari ini lewat dashboard karena password asli waktu create project (bagian 21) tidak sempat dicatat
+- Password baru sudah disimpan Teja secara terpisah (tidak di checkpoint, tidak di chat manapun)
+
+### Next steps
+- [ ] Simpan password `app_user` ke file `.env` project (bukan `.bashrc`, bukan chat manapun) — belum dilakukan
+- [ ] Mulai backend skeleton: tenant resolver middleware (bagian "BELUM DIEKSEKUSI" — Backend), pakai role `app_user` untuk koneksi (bukan `postgres`)
+- [ ] Function/procedure spec-lock (atomik: reserve inventory + ledger + event)
+
 
 - Eskalasi bertahap: reminder → coba telfon manual → default action di deadline
 - **Bukan** langsung diam-diam jalan otomatis
