@@ -1,7 +1,4 @@
 CHECKPOINT — Fashion Platform (Multi-Tenant SaaS)
-Update terakhir: 6 Agustus 2026...cd ~/fashion-platform
-cat > CHECKPOINT.md << 'CHECKPOINT_EOF'
-CHECKPOINT — Fashion Platform (Multi-Tenant SaaS)
 Update terakhir: 6 Agustus 2026 (role app_user diverifikasi & disinkronkan, kontradiksi checkpoint diperbaiki) Cara pakai: paste/replace isi file ini ke CHECKPOINT.md di repo GitHub kamu tiap selesai sesi. Sesi berikutnya (room manapun) tinggal kasih raw link file ini ke Claude sebelum mulai kerja, biar konteks lengkap tanpa perlu re-explain.
 
 1. Arah Proyek
