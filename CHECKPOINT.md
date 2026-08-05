@@ -434,3 +434,29 @@ Next steps (murni next steps backend sekarang, tidak ada lagi item skema/role pe
  Test manual RLS begitu tenant resolver jadi (akses data tenant A pakai context tenant B, harus gagal) — lihat bagian 22
  Adaptasi stateLayer.js, versioning.js, ingestion.js, server.js dari LTOS ke multi-tenant (lihat detail di bagian 13)
  Sisa hardening VPS: UFW, Fail2Ban, backup rutin, cleanup key ssh-rsa lama (lihat bagian 11) — tidak blocking buat mulai coding backend, tapi disarankan dibereskan sebelum backend live/expose port ke publik
+
+25. Ide Awal — Visual Configurator untuk Tenant Konveksi (6 Agustus 2026, BELUM DIRISET MATANG)
+Status: IDE AWAL, bukan keputusan final. Riset lebih lanjut ditunda, sambil jalan.
+
+Konteks
+Tiap tipe tenant (brand owner, vendor konveksi, custom tailor, pabrik) rencananya punya tampilan depan (frontend) yang beda, sesuai componentized blocks (bagian 1 & 15).
+Untuk tenant custom tailor/konveksi, ada ide fitur unggulan: visual configurator — customer bisa "tap-tap" pilih komponen (misal model lengan, kerah, panjang gamis) dan preview baju berubah secara visual, tanpa perlu jelasin lewat teks.
+
+Opsi teknis yang dipertimbangkan (belum final)
+Layer-based 2D (kemungkinan lebih realistis buat solo dev + resource terbatas): tiap opsi komponen adalah gambar PNG transparan yang ditumpuk jadi 1 preview.
+3D configurator: lebih menarik secara visual tapi jauh lebih berat untuk dikembangkan & di-render, kemungkinan besar tidak cocok untuk tahap awal (solo dev, VPS 1GB RAM, tanpa Claude Code).
+Sumber gambar/template
+Rencana: konveksi/tenant yang menyediakan gambar tiap opsi komponen (bukan Teja yang menggambar sendiri).
+Ide desain data (belum diimplementasi, masih draft):
+Tabel baru kemungkinan: garment_component_options (tenant_id, component_type, option_name, image_url, is_active).
+Gambar disimpan di Supabase Storage (extend dari yang sudah dipakai untuk production_stage_photos).
+Frontend fetch dari tabel ini, bukan hardcode di kode — supaya tenant/komponen baru bisa ditambah tanpa perlu ubah & deploy ulang kode.
+Hasil pilihan customer nantinya perlu masuk ke order_specs (fase WEB/consultation sebelum produksi, masih "belum ada di LTOS, perlu dibangun baru" — lihat bagian 13).
+Pertanyaan yang belum terjawab (untuk direview saat riset lanjut)
+Siapa yang mengelola/upload library gambar komponen — konveksi sendiri lewat admin panel, atau Teja yang bantu setup di awal?
+Ada aturan kombinasi yang tidak valid (misal model lengan tertentu tidak cocok dengan kerah tertentu)? Perlu validasi di level data atau UI?
+3 tipe tenant lain (brand owner, vendor konveksi jika beda dari custom tailor, pabrik) belum punya fitur unggulan spesifik yang dipikirkan sejauh ini — masih perlu digali.
+Next steps
+ Riset lebih lanjut soal visual configurator (ditunda, sambil jalan proyek)
+ Setelah riset matang, update bagian ini jadi desain final sebelum mulai implementasi
+ Jangan mulai coding fitur ini sebelum backend inti (tenant resolver, spec-lock) selesai — ini fitur frontend lanjutan, bukan prioritas sekarang
