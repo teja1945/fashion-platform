@@ -555,3 +555,23 @@ grep -oE "[a-z_]+\.[a-z_]+" ~/ltos/src/ingestion.js | sort -u
 - [ ] Tambah event untuk `tenant_billing` setelah desain billing lebih matang
 - [ ] Lanjut ke desain **RLS policy detail per tabel** (bagian 22 baru garis besar pola koneksinya, belum ada policy spesifik per tabel)
 - [ ] Baru eksekusi schema SQL v2 setelah RLS policy per tabel selesai didesain
+- [ ] ## 24. Schema SQL v2 — DIEKSEKUSI ✅ (5 Agustus 2026)
+
+**Status: BERES.** Semua tabel yang belum dieksekusi sudah dibuat, lengkap dengan RLS per tabel.
+
+### Yang dilakukan
+- File `db/fashion_platform_schema_v2.sql` dibuat berisi 19 tabel (schema inti + tabel baru: `spec_substitution_requests`, `customer_decisions`, `customer_notifications`), semua dengan RLS langsung nempel di tiap `create table` (bukan ditambah belakangan), sesuai keputusan bagian 21
+- Migration dibuat via `supabase migration new schema_v2_core` di VPS, isi ditempel manual lewat `nano` (paste dari HP)
+- **Ketemu masalah kecil:** folder `supabase/migrations/` di VPS ternyata dipakai bareng oleh 2 project berbeda (project lama `Ltos backend` + project baru `fashion-platform`) — file migration lama (`20260804230004_enable_rls_ltos_backend.sql`, bagian 20) ikut coba ke-push ke project baru dan error (`relation "public.pending_events" does not exist`), karena project baru belum punya tabel LTOS lama itu
+- **Fix:** file migration lama dipindah ke `~/archive-ltos-migrations/` (bukan dihapus, cuma diarsipkan) — supaya nggak ikut ke-push tiap kali migration baru dijalankan di project ini
+- `supabase db push` berhasil setelah folder migrations dibersihkan
+- Verifikasi: `supabase db advisors --linked --type security --level error` → **"No issues found"** ✅
+
+### Pelajaran penting — folder migrations per-project
+Kalau kerja dengan lebih dari 1 project Supabase dari VPS yang sama, **folder `supabase/migrations/` itu shared** — bukan otomatis kepisah per project. Kalau pindah `supabase link` ke project lain, WAJIB cek dulu isi folder migrations sebelum push, jangan asumsi filenya cuma punya project yang sedang di-link. Kalau perlu, arsipkan/pindahkan migration project lain sebelum push ke project baru.
+
+### Sisa next steps
+- [ ] Buat role `app_user` tanpa privilege `BYPASSRLS` (poin wajib #2, bagian 22) — command sudah didesain, belum dieksekusi, ditunda ke sesi berikutnya
+- [ ] Simpan password `app_user` di file `.env` terpisah (bukan `.bashrc`, bukan chat manapun) begitu dibuat
+- [ ] Mulai backend skeleton: tenant resolver middleware (bagian "BELUM DIEKSEKUSI" — Backend)
+- [ ] Function/procedure spec-lock (atomik: reserve inventory + ledger + event)
