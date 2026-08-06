@@ -483,3 +483,102 @@ Next steps
  Riset lebih lanjut soal skema token/keamanan QR (ditunda, sambil jalan proyek)
  Setelah riset matang, update bagian ini jadi desain final sebelum mulai implementasi
  Jangan mulai coding fitur ini sebelum backend inti (tenant resolver, spec-lock) dan customer login (lihat bagian 25 soal frontend customer-facing) selesai
+
+27. Tenant Resolver Middleware + Verifikasi RLS — SELESAI ✅ (6 Agustus 2026)
+Status: Backend skeleton pertama sudah jalan end-to-end. Ini item next-step utama dari bagian 24, sekarang beres.
+
+Persiapan — copy LTOS dari Termux ke VPS
+LTOS (~/ltos/src di Termux) belum pernah dipindah ke VPS sebelumnya — checkpoint bagian 13 baru rencana, belum eksekusi.
+Dipindah pakai scp langsung dari Termux ke VPS (bukan git, karena LTOS bukan repo git):
+scp ~/ltos/src/{db.js,ingestion.js,package.json,package-lock.json,schema.sql,server.js,stateLayer.js,versioning.js,worker.js,scanner.html} Rakyat@<ip_vps>:~/fashion-platform/
+node_modules SENGAJA tidak ikut dipindah (Termux = android arm, VPS = linux-x64, beda arsitektur) — di-install ulang di VPS pakai npm install dari package-lock.json yang ikut ter-copy, supaya versi persis sama dengan yang sudah teruji di LTOS.
+Catatan: file schema.sql versi LTOS di VPS ternyata sudah ketinggalan dari skema aktual (cuma 140 baris, berhenti di tabel staff) — tidak ada order_locks, work_log, stage_photos padahal itu sudah dikonfirmasi ada di database (bagian 20). Kemungkinan besar ditambah manual di masa lalu, tidak pernah disinkron balik ke file. Tidak masalah untuk kerjaan sekarang (schema v2 yang jadi acuan, bukan file ini), tapi dicatat sebagai potensi jebakan kalau nanti ada yang baca schema.sql dan asumsi itu representasi lengkap LTOS.
+
+Koreksi ke bagian 24 — lokasi file schema v2
+Bagian 24 sebelumnya menyebut file db/fashion_platform_schema_v2.sql — ternyata file itu TIDAK ADA di folder db/ (isinya cuma EVENT_CONTRACTS.md). File schema v2 yang asli dan benar-benar dieksekusi ada di ~/supabase/migrations/20260805023907_schema_v2_core.sql (488 baris, 19 tabel, terverifikasi lewat grep "create table" — persis sesuai daftar di bagian 5).
+
+Perbaikan .env — DATABASE_URL sebelumnya rusak (password kosong + format username salah)
+Ditemukan 2 masalah sekaligus di ~/fashion-platform/.env:
+Password kosong: DATABASE_URL=postgresql://app_user:@aws-0-... (tidak ada apa-apa antara : dan @). Kemungkinan kelupaan diisi saat sinkronisasi password 6 Agustus (bagian 24).
+Format username salah untuk Session Pooler: harusnya app_user.<project-ref>, bukan app_user polos. Tanpa suffix ini, koneksi gagal dengan error FATAL: (ENOIDENTIFIER) no tenant identifier provided.
+Format DATABASE_URL yang benar dan sudah teruji jalan (psql dan Node.js pg Pool):
+postgresql://app_user.kwhybffbcqopqbbnuigg:<password>@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres
+dotenv belum pernah dipasang di project ini — db.js sebelumnya tidak baca file .env sama sekali (kalau dijalankan, DATABASE_URL akan undefined, fallback ke localhost). Fix: npm install dotenv, tambah require("dotenv").config() di baris pertama db.js.
+
+Function resolve_tenant_id — akses tenants tanpa buka SELECT langsung ke app_user
+Masalah: tabel tenants punya RLS policy tenants_service_only (cuma bisa diakses service_role). app_user (role yang dipakai backend, bagian 22) BUKAN service_role, jadi tenant resolver tidak akan bisa query tenants langsung.
+Sempat dipertimbangkan kasih app_user policy SELECT langsung (using (true)), tapi ini beresiko: kalau ada endpoint yang query tenants tanpa filter, bisa bocorin daftar SEMUA tenant (nama, tipe bisnis, dll) ke siapapun yang bisa manggil endpoint itu.
+Solusi yang dipakai: function sempit dengan security definer, cuma balikin id + is_active berdasarkan 1 subdomain spesifik — app_user tidak pernah dikasih akses SELECT bebas ke tabel tenants:
+create or replace function resolve_tenant_id(p_subdomain citext)
+returns table (id uuid, is_active boolean)
+language sql
+security definer
+set search_path = public
+as $$
+  select id, is_active from tenants where subdomain = p_subdomain;
+$$;
+
+grant execute on function resolve_tenant_id(citext) to app_user;
+Migration: ~/supabase/migrations/20260806080000_allow_app_user_read_tenants.sql — sudah di-push, terverifikasi lewat psql dan Node.js (hasil kosong untuk subdomain tidak ada, hasil benar untuk subdomain "demo").
+Pelajaran Supabase CLI: command harus dijalankan dari ~ (home), BUKAN dari dalam ~/supabase — kalau dijalankan dari dalam folder itu, CLI bikin folder supabase/ nested baru dan project-ref jadi tidak ketemu ("Cannot find project ref"). Root cause: CLI menyimpan link relatif ke folder tempat command dijalankan.
+
+Middleware tenantResolver — kode final
+File: ~/fashion-platform/middleware/tenantResolver.js
+const { pool } = require("../db");
+
+function extractSubdomain(host) {
+  if (!host) return null;
+  const hostname = host.split(":")[0];
+  const parts = hostname.split(".");
+  if (parts.length < 3) return null;
+  const sub = parts[0];
+  return sub === "www" ? null : sub;
+}
+
+async function tenantResolver(req, res, next) {
+  try {
+    const subdomain = extractSubdomain(req.hostname);
+    if (!subdomain) {
+      return res.status(400).json({ error: "Subdomain tenant tidak terdeteksi" });
+    }
+    const { rows } = await pool.query("SELECT * FROM resolve_tenant_id($1)", [subdomain]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Tenant tidak ditemukan" });
+    }
+    if (!rows[0].is_active) {
+      return res.status(403).json({ error: "Tenant tidak aktif" });
+    }
+    req.tenantId = rows[0].id;
+    req.tenantSubdomain = subdomain;
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = tenantResolver;
+Dipasang di server.js pada endpoint test /v1/whoami (endpoint sementara untuk verifikasi, belum dipakai endpoint bisnis asli):
+app.get("/v1/whoami", tenantResolver, (req, res) => {
+  res.json({ tenantId: req.tenantId, subdomain: req.tenantSubdomain });
+});
+
+Testing — 3 skenario, semua lolos
+Data test: 2 tenant dummy dibuat via Supabase SQL Editor — demo (id 8ae20661-626d-42c9-b930-6c926ca3ce99) dan demo2 (id f06b9548-fb4b-4684-90ef-1e249cdfc4be).
+curl -H "Host: demo.fashion-platform.com" http://localhost:3000/v1/whoami → 200, tenantId cocok persis dengan id di database.
+curl -H "Host: nonexistent.fashion-platform.com" http://localhost:3000/v1/whoami → 404, sesuai desain.
+curl -H "Host: fashion-platform.com" http://localhost:3000/v1/whoami (tanpa subdomain) → 400, sesuai desain.
+Catatan sampingan: pas testing, worker.js (gap monitor, bundle-split reconciler) muncul error relation "events"/"gap_status" does not exist — WAJAR, karena worker.js masih pakai nama tabel LTOS lama (events, gap_status), sedangkan schema v2 sudah rename jadi production_events dan tidak punya tabel gap_status terpisah. Ini dikonfirmasi sebagai next step yang memang belum dikerjakan (adaptasi worker.js — lihat bagian 13), bukan bug baru.
+
+Test manual RLS — TERVERIFIKASI ✅ (item yang sebelumnya "BELUM DILAKUKAN" di bagian 22)
+2 order dummy dibuat via SQL Editor, masing-masing untuk tenant demo dan demo2.
+Test dari Node.js, pakai pool.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]) di dalam transaction (BEGIN...COMMIT) — pelajaran penting: SET LOCAL tidak bisa dipakai dengan parameterized query ($1), harus pakai fungsi set_config() untuk itu.
+Hasil: context tenant demo cuma bisa lihat order milik demo (order milik demo2 tidak nongol sama sekali), dan sebaliknya. RLS isolasi antar-tenant terbukti bekerja di level database, bukan cuma asumsi dari desain policy.
+
+Next steps (update dari bagian 24)
+ Tenant resolver middleware — SELESAI (bagian ini)
+ Test manual RLS — SELESAI (bagian ini)
+ Adaptasi endpoint asli di server.js (/v1/orders, dll) supaya pakai tenantResolver + pola withTenant/SET LOCAL, bukan cuma endpoint test /v1/whoami
+ Adaptasi stateLayer.js, versioning.js, ingestion.js — tambahkan tenant_id di semua query WHERE clause
+ Adaptasi worker.js — ganti nama tabel events → production_events, gap_status (perlu cek ulang apakah state ini sekarang tersimpan di kolom lain di production_events, karena tabel gap_status terpisah sudah tidak ada di schema v2)
+ Function/procedure spec-lock (atomik: reserve inventory + ledger + event)
+ SUPABASE_URL, SUPABASE_SECRET_KEY, API_KEY belum ada di .env — belum dibutuhkan sampai fitur upload foto stage / proteksi endpoint API mulai dikerjakan
