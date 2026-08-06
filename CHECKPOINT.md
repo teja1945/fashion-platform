@@ -617,3 +617,10 @@ Next steps
  Cek ulang status pembayaran Claude Code (Google Play billing atau opsi lain) — lihat juga bagian 26
  Kalau Claude Code tetap terkendala dalam waktu lama, evaluasi opsi 2 (Claude API + tool use) sebagai alternatif
  JANGAN mulai bangun automation apapun sebelum backend inti fashion-platform (tenant resolver sudah selesai — bagian 27; masih perlu: adaptasi endpoint asli, spec-lock, worker.js) selesai duluan — automation ini prioritas jauh di bawah itu
+
+29. Pelajaran — Cara Edit CHECKPOINT.md dan File Lain di VPS (6 Agustus 2026)
+Prinsip yang harus diikuti semua room, supaya konsisten:
+Selalu pakai cat >> nama_file << 'EOF' ... EOF untuk NAMBAHIN konten ke CHECKPOINT.md atau file lain — bukan nano, bukan editor interaktif lain. Ini cara yang sudah terbukti jalan mulus di beberapa sesi sebelumnya (bagian 25, 26, 28).
+JANGAN pakai cat > nama_file (satu tanda >) kalau maksudnya menambah isi — itu artinya OVERWRITE TOTAL, seluruh isi file lama akan hilang diganti draft baru. Tanda >> (dua kali) itu APPEND (nambah di akhir), tanda > (satu kali) itu REPLACE (timpa semua).
+Kalau ragu mana yang mau dipakai, cek dulu isi command-nya baris per baris sebelum dieksekusi — terutama kalau command itu datang dari saran AI di room lain, karena tiap room tidak selalu tahu histori kesepakatan dari room lain (checkpoint ini satu-satunya sumber kebenaran bersama, chat history antar-room TIDAK otomatis saling terhubung).
+Setelah append, SELALU verifikasi dengan tail -N CHECKPOINT.md sebelum commit & push — jangan asumsikan heredoc berhasil sempurna hanya dari tidak adanya error di terminal.
