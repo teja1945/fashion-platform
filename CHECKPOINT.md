@@ -660,3 +660,40 @@ Next steps
  Adaptasi stateLayer.js — tambah tenant_id di semua query WHERE clause (lihat bagian 13)
  Adaptasi ingestion.js — termasuk insert event gap.opened supaya worker.js bisa jalan end-to-end
  Putuskan desain child bundle (bundle-split) di schema v2, baru adaptasi reconciler di worker.js
+
+32. Migration pending_events + stale_event_log — SELESAI ✅ (7 Agustus 2026)
+Status: 2 tabel yang kelewat pas migrasi schema v2 pertama (bagian 24) sudah ditambahkan.
+
+Konteks
+Saat adaptasi stateLayer.js (lihat bagian 33), ketahuan pending_events dan stale_event_log — tabel buffer/log dari LTOS lama untuk handling event out-of-order — TIDAK ADA di daftar 19 tabel schema v2 (bagian 5). Bukan keputusan sengaja dihapus, murni kelewat pas migrasi.
+Migration dijalankan langsung lewat Supabase MCP (bukan CLI VPS) — nama migration: add_pending_events_and_stale_event_log
+
+Struktur tabel baru
+pending_events: id, tenant_id, production_job_id, sequence_version, event_id (FK ke production_events), created_at. Unique constraint (production_job_id, sequence_version) buat ON CONFLICT DO NOTHING dedup.
+stale_event_log: id, tenant_id, production_job_id, sequence_version, event_id, reason, created_at.
+Keduanya pakai pola RLS yang sama persis dengan tabel lain (dicek langsung ke pg_policies sebelum bikin migration, bukan nebak): policy tenant_isolation, cmd ALL, qual tenant_id = current_setting('app.tenant_id', true)::uuid.
+GRANT SELECT, INSERT, UPDATE, DELETE ke app_user sudah ada di migration.
+
+Verifikasi: supabase get_advisors security -> 0 warning.
+
+33. stateLayer.js — Adaptasi ke Schema v2 — SELESAI ✅ (7 Agustus 2026)
+Status: File sudah ditulis ulang lengkap dan di-push ke GitHub (commit 61aabf4, 213 baris).
+
+Perubahan struktural dari versi LTOS
+order_state -> production_jobs. PENTING: production_jobs jauh lebih ramping dari order_state LTOS -- cuma punya current_stage, current_version, gap_status (bukan customer_name/model/deadline/quantity/status, yang sekarang ada di tabel orders/order_specs). Konsekuensinya: HANYA event order.stage_changed yang nulis ke current_stage (dari payload.to_stage). Event lain (order.created, payment.*, qc.*, dst) tetap diproses untuk versioning/gap-tracking, tapi tidak mengubah kolom apapun di production_jobs selain current_version.
+events -> production_events, entity_id -> production_job_id, entity_version (LTOS) -> sequence_version (schema v2, strict increment per production_job_id). Kolom event_version di production_events itu metadata versi payload (lihat EVENT_CONTRACTS.md), BUKAN dipakai untuk urutan apply -- jangan disalahartikan sebagai pengganti entity_version.
+gap_status (tabel terpisah LTOS) -> kolom gap_status di production_jobs, konsisten dengan pola yang sudah dipakai worker.js (bagian 31): kolom = status cepat, event gap.opened/gap.escalated/gap.resolved di production_events = audit trail.
+
+Perubahan API -- WAJIB diperhatikan pemanggil (ingestion.js)
+Signature berubah dari tryApplyToState(event) jadi tryApplyToState(client, event). File ini TIDAK buka koneksi sendiri dari pool -- client yang dikasih ke fungsi ini WAJIB sudah di dalam transaction yang sudah di-SET LOCAL app.tenant_id (pola withTenant(), lihat bagian 22 & worker.js bagian 31), supaya RLS beneran aktif per operasi.
+Konsekuensi buat ingestion.js (next step): wajib resolve order_id -> production_job_id SEBELUM insert ke production_events (production_job_id wajib ada di row event), dan wajib buka transaction + SET LOCAL tenant sebelum manggil tryApplyToState().
+
+Yang BELUM (sengaja ditunda, konsisten dengan worker.js bagian 31)
+Event order.cancelled dengan struktur allocations (BUNDLE_ALLOCATION, bagian 8 & 13) BELUM ditangani logic-nya di sini -- kalau event ini masuk sekarang, cuma nambah sequence_version tanpa efek lain ke child bundle. Sama seperti bundle-split reconciler di worker.js, nunggu keputusan desain: child bundle disimpan sebagai baris production_jobs baru atau tabel terpisah.
+Event gap.resolved untuk auto-close (chain-apply nutup gap otomatis) sengaja TIDAK diinsert di closeGapIfOpen() -- cuma update kolom gap_status. Ini supaya nggak dobel keputusan desain sama manuallyResolveGap() di worker.js yang insert event gap.resolved untuk kasus manual. Kalau nanti butuh audit trail auto-close juga, ini next step kecil yang belum diambil keputusannya.
+
+Next steps
+[ ] Adaptasi ingestion.js -- resolve order_id ke production_job_id, insert ke production_events, buka transaction + SET LOCAL sebelum panggil tryApplyToState(client, event)
+[ ] Adaptasi versioning.js -- assign sequence_version secara atomik (row lock + transaction), tambahkan tenant_id di semua query WHERE clause
+[ ] Putuskan desain child bundle (BUNDLE_ALLOCATION) di schema v2 -- blocker buat order.cancelled logic di stateLayer.js DAN bundle-split reconciler di worker.js
+[ ] Function/procedure spec-lock (atomik: reserve inventory + ledger + event) -- masih next step utama dari bagian 24/27, belum tersentuh
