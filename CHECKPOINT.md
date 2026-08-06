@@ -582,3 +582,38 @@ Next steps (update dari bagian 24)
  Adaptasi worker.js — ganti nama tabel events → production_events, gap_status (perlu cek ulang apakah state ini sekarang tersimpan di kolom lain di production_events, karena tabel gap_status terpisah sudah tidak ada di schema v2)
  Function/procedure spec-lock (atomik: reserve inventory + ledger + event)
  SUPABASE_URL, SUPABASE_SECRET_KEY, API_KEY belum ada di .env — belum dibutuhkan sampai fitur upload foto stage / proteksi endpoint API mulai dikerjakan
+
+28. Ide Awal — Automation "AI Mikir + AI Eksekusi" untuk Kerja Rutin (6 Agustus 2026, BELUM DIRISET MATANG)
+Status: IDE AWAL, bukan keputusan final. Proyek terpisah dari fashion-platform, bukan bagian dari roadmap utama.
+
+Konteks
+Ide awal: pakai ChatGPT sebagai "tangan" (eksekusi command via MCP) dan Claude sebagai "otak" (mikir/comando), supaya tidak perlu manual copy-paste command dari chat ke terminal terus-menerus seperti yang dilakukan sepanjang sesi ini.
+
+Kenapa "Claude comando ChatGPT langsung" tidak bisa
+Claude dan ChatGPT adalah dua sistem terpisah, tidak ada jalur komunikasi otomatis antar keduanya. Untuk menghubungkan, butuh program bridge custom (kode sendiri) yang manggil Claude API dulu untuk "mikir", forward hasilnya ke ChatGPT API untuk eksekusi, lalu forward hasil eksekusi balik ke Claude API untuk evaluasi. Ini proyek engineering terpisah, bukan fitur yang tinggal di-enable.
+
+Opsi-opsi yang dipertimbangkan (dari termurah/tersimpel ke termahal/terkompleks)
+1. Claude Code — siap pakai, tidak perlu bangun apa-apa, 1 tagihan, safeguard sudah ada bawaan. Kendala saat ini: pembayaran (lihat bagian 26 — sedang dijajaki lewat Google Play billing). Paling direkomendasikan begitu kendala billing selesai.
+2. Claude API + tool use (function calling) — cukup 1 API (Claude saja, TIDAK perlu ChatGPT API sama sekali). Claude "meminta" eksekusi command, program kecil di VPS yang menjalankan, hasil dikirim balik ke Claude untuk dievaluasi. Biaya jauh lebih murah karena tidak ada 2 tagihan API paralel.
+3. n8n self-hosted (gratis, open-source, bisa di-install di VPS sendiri) + Claude API — eksekusi lewat visual workflow, tidak perlu banyak kode custom. Biaya cuma dari pemakaian Claude API.
+4. Claude Agent SDK — kerangka resmi dari Anthropic (fondasi yang dipakai untuk bikin Claude Code sendiri), lebih fleksibel untuk dikustomisasi tapi butuh effort development lebih besar.
+5. Bridge custom Claude API + ChatGPT API — opsi awal yang dipertimbangkan. Paling mahal (2 tagihan API terpisah) dan paling kompleks (2 sistem AI berbeda harus disinkronkan manual, safeguard harus didesain sendiri dari nol). Tidak direkomendasikan kecuali ada alasan spesifik yang mengharuskan pakai 2 provider berbeda.
+
+Estimasi biaya (kalau opsi 2/3/4 dipilih, referensi Agustus 2026 — PERLU DICEK ULANG karena harga API sering berubah)
+Realtime/polling terus-menerus: mahal, estimasi kasar $300–$2.000+/bulan tergantung frekuensi & ukuran context yang dikirim tiap panggilan API.
+Event-triggered (jalan cuma saat ada kejadian, misal git push atau cron job, bukan polling terus-menerus): jauh lebih murah, estimasi kasar $10–$50/bulan untuk pemakaian moderate.
+Cara hemat tambahan: prompt caching (diskon signifikan kalau context yang dikirim sama berulang), model routing (pakai model murah seperti Haiku untuk tugas simpel, model kuat cuma untuk yang butuh), batasi context per-panggilan (jangan kirim seluruh checkpoint kalau cuma butuh 1 section).
+
+Prinsip keamanan yang sudah disepakati (kalau nanti opsi 2-5 jadi dieksekusi)
+Command allowlist/blocklist — command destruktif (rm -rf, DROP TABLE, git push --force, dst) diblokir otomatis di level sistem, apapun alasan AI-nya.
+Human-in-the-loop di titik kritis — command yang masuk kategori "beresiko" wajib pause dan tunggu approval manual, sisanya boleh otomatis.
+Prioritas: pencegahan (nyetop sebelum kejadian) lebih penting daripada mitigasi (backup/restore setelah kejadian) — kalau cuma bisa pilih 1 safeguard untuk mulai, pilih allowlist dulu.
+
+Kesimpulan sementara
+Untuk kebutuhan proyek fashion-platform (eksekusi command VPS dengan pengawasan), Claude Code tetap pilihan utama begitu kendala billing selesai — memberikan hasil akhir yang sama (AI mikir + AI eksekusi dengan safeguard) tanpa perlu membangun dan membayar 2 sistem API terpisah.
+TIDAK direkomendasikan mulai dari automation realtime/polling untuk sistem yang belum pernah dites — mulai dari event-triggered dulu kalau memang mau coba opsi 2-4.
+
+Next steps
+ Cek ulang status pembayaran Claude Code (Google Play billing atau opsi lain) — lihat juga bagian 26
+ Kalau Claude Code tetap terkendala dalam waktu lama, evaluasi opsi 2 (Claude API + tool use) sebagai alternatif
+ JANGAN mulai bangun automation apapun sebelum backend inti fashion-platform (tenant resolver sudah selesai — bagian 27; masih perlu: adaptasi endpoint asli, spec-lock, worker.js) selesai duluan — automation ini prioritas jauh di bawah itu
