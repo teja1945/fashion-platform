@@ -461,3 +461,25 @@ Next steps
  Riset lebih lanjut soal visual configurator (ditunda, sambil jalan proyek)
  Setelah riset matang, update bagian ini jadi desain final sebelum mulai implementasi
  Jangan mulai coding fitur ini sebelum backend inti (tenant resolver, spec-lock) selesai — ini fitur frontend lanjutan, bukan prioritas sekarang
+
+26. Ide Awal — QR Code Dual-Jalur: Customer vs Produksi (6 Agustus 2026, BELUM DIRISET MATANG)
+Status: IDE AWAL, bukan keputusan final.
+
+Konteks
+Untuk 1 order/production_job yang sama, direncanakan ada 2 jenis QR code dengan tujuan (endpoint) berbeda, tergantung siapa yang scan:
+Customer: tempel di struk/nota atau dikirim lewat WA — scan membuka halaman status order untuk customer (lihat progress, approve keputusan, dll).
+Produksi: tempel di bundle kain/baju fisik yang sedang diproses — scan membuka halaman staff untuk update stage produksi (misal tandai selesai cutting, masuk QC).
+
+Prinsip desain
+QR code hanya berfungsi sebagai "pintu masuk" berisi ID (order_id atau production_jobs.id) yang diarahkan ke endpoint berbeda sesuai jenis QR — bukan QR itu sendiri yang menentukan hak akses.
+Otorisasi tetap ditentukan di sisi server (RLS + role check), bukan dari QR-nya. Staff yang scan QR produksi harus tetap melalui autentikasi staff (PIN/session) yang sudah ada. Customer yang scan QR customer idealnya juga melalui mekanisme token/otentikasi tersendiri.
+
+Pertanyaan keamanan yang belum terjawab (perlu direview saat riset lanjut)
+QR customer: apakah cukup berisi order_id polos, atau perlu token unik/random per order supaya tidak bisa ditebak/diakses orang lain yang bukan pemilik order? Cenderung ke arah token unik demi keamanan.
+QR produksi: apakah cukup diasumsikan aman karena device scanner dipegang staff internal tenant sendiri (lebih terkontrol), atau tetap perlu binding ke sesi staff yang sedang login?
+Apakah QR di-generate sekali di awal order (statis) atau bisa di-refresh/invalidate (misal kalau QR hilang/bocor)?
+
+Next steps
+ Riset lebih lanjut soal skema token/keamanan QR (ditunda, sambil jalan proyek)
+ Setelah riset matang, update bagian ini jadi desain final sebelum mulai implementasi
+ Jangan mulai coding fitur ini sebelum backend inti (tenant resolver, spec-lock) dan customer login (lihat bagian 25 soal frontend customer-facing) selesai
