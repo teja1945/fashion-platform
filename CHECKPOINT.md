@@ -641,3 +641,22 @@ move_citext_extension_out_of_public
 
 Next steps
  Cari & connect GitHub MCP di claude.ai versi Chrome (belum ketemu caranya di mobile) — begitu jalan, update CHECKPOINT.md bisa langsung commit dari chat, tidak perlu manual dari VPS lagi
+
+31. worker.js — Adaptasi ke Schema v2 (Gap Monitor) — SELESAI SEBAGIAN ✅⚠️ (7 Agustus 2026)
+Status: Gap monitor sudah diadaptasi & jalan, bundle-split reconciler masih pending desain.
+
+Yang beres
+worker.js baru (226 baris) sudah ditransfer ke VPS, menggantikan versi lama yang masih pakai nama tabel LTOS (events, gap_status)
+Gap monitor sekarang pakai schema v2 (production_events), loop per-tenant (RLS-safe — tiap tenant diproses dalam context tenant_id-nya sendiri, bukan query lintas-tenant tanpa filter)
+Keputusan desain — Opsi B: histori gap disimpan sebagai EVENT (bukan kolom terpisah di tabel state seperti gap_status LTOS lama). Konsisten dengan pola event-sourced yang sudah dipakai di production_events.
+Function baru di Supabase: list_active_tenant_ids() — security definer, cuma app_user yang bisa akses (pola sama seperti resolve_tenant_id() di bagian 27, termasuk revoke dari PUBLIC — lihat checklist bagian 30)
+Commit: worker.js di-push ke GitHub (lihat commit log)
+
+Yang BELUM (sengaja ditunda, bukan lupa)
+Bundle-split reconciler BELUM diadaptasi — nunggu keputusan desain: child bundle dari 1 bundle yang di-split disimpan gimana di schema v2 (belum ada tabel/kolom yang jelas buat ini, beda dari LTOS lama)
+Event gap.opened BELUM ada yang insert — ini tugas stateLayer.js/ingestion.js (masih pakai desain lama, belum diadaptasi ke multi-tenant, lihat bagian 13 & 27). Konsekuensi: worker.js gap monitor belum bisa jalan end-to-end penuh sampai ingestion.js insert event ini.
+
+Next steps
+ Adaptasi stateLayer.js — tambah tenant_id di semua query WHERE clause (lihat bagian 13)
+ Adaptasi ingestion.js — termasuk insert event gap.opened supaya worker.js bisa jalan end-to-end
+ Putuskan desain child bundle (bundle-split) di schema v2, baru adaptasi reconciler di worker.js
