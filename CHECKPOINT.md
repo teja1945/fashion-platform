@@ -624,3 +624,20 @@ Selalu pakai cat >> nama_file << 'EOF' ... EOF untuk NAMBAHIN konten ke CHECKPOI
 JANGAN pakai cat > nama_file (satu tanda >) kalau maksudnya menambah isi — itu artinya OVERWRITE TOTAL, seluruh isi file lama akan hilang diganti draft baru. Tanda >> (dua kali) itu APPEND (nambah di akhir), tanda > (satu kali) itu REPLACE (timpa semua).
 Kalau ragu mana yang mau dipakai, cek dulu isi command-nya baris per baris sebelum dieksekusi — terutama kalau command itu datang dari saran AI di room lain, karena tiap room tidak selalu tahu histori kesepakatan dari room lain (checkpoint ini satu-satunya sumber kebenaran bersama, chat history antar-room TIDAK otomatis saling terhubung).
 Setelah append, SELALU verifikasi dengan tail -N CHECKPOINT.md sebelum commit & push — jangan asumsikan heredoc berhasil sempurna hanya dari tidak adanya error di terminal.
+
+30. MCP Tools Terhubung — Supabase, Vercel, GitHub (6 Agustus 2026)
+Status: Supabase & Vercel MCP aktif dan terverifikasi jalan langsung dari chat Claude. GitHub connector sudah "Terhubung" di Settings tapi baru terdeteksi di claude.ai versi Chrome/web, belum di app mobile.
+
+Perbaikan security via Supabase MCP (bukan lewat VPS/CLI manual)
+resolve_tenant_id() ternyata otomatis ke-expose ke REST API publik (/rest/v1/rpc/resolve_tenant_id) — bisa dipanggil anon & authenticated tanpa lewat backend. Fix: revoke execute dari PUBLIC, anon, authenticated (grant ke app_user tetap ada, tidak terpengaruh)
+Pelajaran: di Postgres, GRANT EXECUTE ke app_user TIDAK otomatis membatasi role lain — PUBLIC dapat akses default kecuali di-revoke eksplisit. Checklist ke depan tiap bikin function baru (termasuk spec-lock function yang direncanakan): selalu revoke execute ... from public setelah create function
+Extension citext dipindah dari schema public ke schema extensions (housekeeping, tidak ada dampak fungsional — diverifikasi resolve_tenant_id('demo') masih balikin hasil sama persis)
+Hasil: supabase get_advisors security → 0 warning (sebelumnya 3 warning)
+
+Migration yang di-push lewat MCP (bukan CLI VPS)
+revoke_public_exec_resolve_tenant_id
+revoke_public_default_exec_resolve_tenant_id
+move_citext_extension_out_of_public
+
+Next steps
+ Cari & connect GitHub MCP di claude.ai versi Chrome (belum ketemu caranya di mobile) — begitu jalan, update CHECKPOINT.md bisa langsung commit dari chat, tidak perlu manual dari VPS lagi
