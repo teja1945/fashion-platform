@@ -697,3 +697,46 @@ Next steps
 [ ] Adaptasi versioning.js -- assign sequence_version secara atomik (row lock + transaction), tambahkan tenant_id di semua query WHERE clause
 [ ] Putuskan desain child bundle (BUNDLE_ALLOCATION) di schema v2 -- blocker buat order.cancelled logic di stateLayer.js DAN bundle-split reconciler di worker.js
 [ ] Function/procedure spec-lock (atomik: reserve inventory + ledger + event) -- masih next step utama dari bagian 24/27, belum tersentuh
+
+## Bagian 34 — withTenant() konsolidasi, stateLayer.js bugfix, versioning.js + ingestion.js ditulis ulang (schema v2)
+
+**Commit:** `4480829` (5 files changed, 418 insertions, 58 deletions)
+
+**Temuan awal sesi ini:**
+- `withTenant()` ternyata didefinisikan lokal di `worker.js`, bukan di `db.js` seperti asumsi sebelumnya. Dipindah ke `db.js` sebagai satu sumber (bareng `getActiveTenantIds()`), `worker.js` sekarang tinggal import. Menghindari risiko 2-3 salinan fungsi yang sama divergen di kemudian hari.
+- Bug ditemukan di `stateLayer.js` (dari commit `61aabf4`): ada cabang dead code "insert row baru kalau `production_jobs` belum ada", peninggalan asumsi LTOS lama, masih nyimpen default stage `"consultation_styling"` yang sudah tidak relevan. Dibersihkan — production_jobs sekarang eksplisit dikontrak SELALU sudah ada sebelum `tryApplyToState()` dipanggil (dibuat di `versioning.js`, bukan di `stateLayer.js`).
+
+**Verifikasi migration lama (ternyata sudah pernah dieksekusi room sebelumnya, sebelum limit habis):**
+Dicek langsung ke database (`\d production_jobs`, `\d orders`, `\d request_dedup`) — semua 3 migration yang direncanakan sebelumnya sudah tuntas dieksekusi:
+- `production_jobs`: kolom `created_from_event_id` (nullable, FK ke `production_events`), `pipeline_snapshot` (jsonb, default `'[]'`), `next_sequence_version` (bigint, default 0) — semua sesuai rencana
+- `orders.production_job_id` — UNIQUE + FK ke `production_jobs(id)`
+- `request_dedup` — tabel baru, scoped `(tenant_id, request_id)` UNIQUE, RLS `tenant_isolation` aktif, grant `app_user` (INSERT/SELECT/UPDATE/DELETE) lengkap
+
+**File yang ditulis ulang/diedit sesi ini:**
+1. `db.js` — tambah `withTenant(client, tenantId, fn)` dan `getActiveTenantIds(client)`, pool tetap sama persis
+2. `worker.js` — hapus definisi lokal, import dari `db.js`, logic gap monitor tidak berubah
+3. `stateLayer.js` — hapus cabang insert-row dead code di `applyWithOptimisticLock()`, update komentar kepala file jadi eksplisit soal kontrak "production_jobs selalu sudah ada"
+4. `versioning.js` (ditulis ulang total) — 2 jalur:
+   - `createProductionJob()`: khusus event `order.confirmed_for_production`. Insert row `production_jobs` baru langsung di versi 1 (current_version=1, next_sequence_version=1), insert event pertama, lalu `UPDATE production_jobs SET created_from_event_id`. Tidak lewat `tryApplyToState()`.
+   - `assignVersionAndStore()`: untuk production_job yang sudah ada. `FOR UPDATE` lock di `next_sequence_version`, insert event, update tracker, panggil `tryApplyToState(client, event)` di dalam transaction yang sama (atomik — beda dari pola LTOS lama yang apply-nya best-effort di luar transaction).
+   - Dedup: `request_dedup` scoped `(tenant_id, request_id)`, dicek di awal tiap fungsi sebelum kerja lain.
+5. `ingestion.js` (ditulis ulang total) — `STAGE_ORDER` hardcode dihapus total, diganti baca dari `pipeline_snapshot` job (bukan konstanta global, karena pipeline sekarang per-tenant & bisa beda-beda). `resolveStageTransition()` sekarang menerima `pipelineSnapshot` sebagai parameter. Event `order.confirmed_for_production` di-detect khusus, ambil `tenant_pipeline_stages` tenant saat itu (snapshot, bukan live join), lempar ke `createProductionJob()`. Event lain: resolve `order_id -> production_job_id` lewat `orders.production_job_id`, baru panggil `assignVersionAndStore()`. `BUNDLE_ALLOCATION` tetap ada di `KNOWN_EVENT_TYPES` tapi return HTTP 501 "belum didukung" — sengaja tidak dihapus biar gampang di-enable lagi begitu desain child bundle diputuskan (lihat bagian 13/31/33).
+
+**Item desain baru — verifikasi 2 pihak QC (DITUNDA, belum diimplementasi):**
+Pola yang disepakati untuk dibahas nanti pas desain `resolveStageTransition`/QC handling di `ingestion.js`:
+- Staff jahit submit klaim jumlah (misal scan QR + foto) -> status **pending**, belum otomatis dianggap sah
+- QC verifikasi fisik, input jumlah yang benar-benar diterima
+- Jumlah cocok -> auto lanjut ke stage berikutnya
+- Jumlah tidak cocok (kurang) -> JANGAN auto-fail staff jahit, trigger proses reject/discrepancy dengan jejak siapa lapor apa (mirip pola `spec_substitution_requests` bagian 7) — supaya ada bukti sebelum menuduh, sekaligus proteksi staff jahit kalau memang bukan salahnya (barang hilang saat transit, dll)
+- Terhubung ke QR dual-jalur (bagian 26): QR staff produksi nanti dipakai untuk 2 aksi berbeda ("saya submit" vs "saya konfirmasi terima"), bukan 1 aksi tunggal
+- STAGE_COMPLETED saat ini BELUM ada validasi quantity sama sekali — ini jadi requirement yang harus masuk pas redesign
+
+**Catatan lain:**
+- `tenant_pipeline_stages` masih kosong (0 rows) di database saat ini — belum ada tenant yang di-seed pipeline stage-nya. Ini artinya `order.confirmed_for_production` akan gagal (HTTP 422) kalau dites sekarang, sebelum ada data seed. Bukan bug, tapi blocker untuk testing end-to-end berikutnya.
+
+**Next steps:**
+1. Seed `tenant_pipeline_stages` untuk minimal 1 tenant test, supaya `order.confirmed_for_production` bisa dites end-to-end
+2. Test manual: `order.confirmed_for_production` -> `STAGE_COMPLETED` beberapa kali -> pastikan `current_stage` di `production_jobs` maju sesuai `pipeline_snapshot`
+3. Desain ulang `resolveStageTransition`/QC handling dengan quantity validation (lihat item desain di atas)
+4. Putuskan desain child bundle (BUNDLE_ALLOCATION) — masih blocker sejak bagian 13
+5. Bundle-split reconciler di `worker.js` masih belum diadaptasi (menunggu keputusan poin 4)
