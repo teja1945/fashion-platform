@@ -766,3 +766,50 @@ Next steps (belum berubah dari bagian 34, masih next step utama)
 [ ] Putuskan desain child bundle (BUNDLE_ALLOCATION) -- masih diblokir/return 501 di ingestion.js
 [ ] Function/procedure spec-lock (atomik: reserve inventory + ledger + event) -- belum tersentuh
 [ ] Ide baru dari sesi ini (belum didesain): validasi 2 pihak staff jahit vs QC untuk jumlah pcs -- staff submit pending, QC konfirmasi jumlah aktual, discrepancy dicatat dengan jejak (mirip pola spec_substitution_requests). Nyambung ke QR dual-jalur (bagian 26). BELUM ada desain skema/event, bahas lagi sebelum mulai coding modul QC.
+
+36. Testing End-to-End Pertama Kali — SUKSES, + Bugfix Kritis sequence_version — SELESAI ✅ (7 Agustus 2026)
+Status: Pipeline event-sourcing terbukti jalan end-to-end penuh untuk pertama kalinya. Ditemukan dan diperbaiki 1 bug kritis baru di tengah proses testing.
+
+Persiapan — seed tenant_pipeline_stages
+tenant_pipeline_stages sebelumnya kosong (0 rows, dicatat sebagai blocker di bagian 34) — di-seed 6 stage untuk tenant demo (id 8ae20661-626d-42c9-b930-6c926ca3ce99) lewat Supabase MCP:
+gudang (stage_order 1, is_gudang_stage true, is_optional true) -> cutting (2) -> jahit (3) -> qc (4) -> packing (5) -> shipped (6)
+Dijalankan lewat Supabase MCP (execute_sql), bukan CLI VPS -- konsisten dengan pola MCP yang sudah dipakai di bagian 30-32.
+
+Bug kritis ditemukan — sequence_version string concatenation (bigint-as-string di node-postgres)
+Skenario test: panggil ingestEvent() langsung (bukan lewat HTTP endpoint, karena server.js belum diadaptasi -- lihat next steps) via script Node manual di VPS, urutan order.confirmed_for_production -> STAGE_COMPLETED x2 -> qc.passed -> shipment.dispatched.
+Hasil pertama kali JANGGAL: sequence_version yang dikembalikan/tersimpan adalah 1, 11, 111, 1111, 11111 -- bukan 1, 2, 3, 4, 5. Diverifikasi BUKAN cuma salah baca output console.log -- dicek langsung ke tabel production_events via Supabase MCP, nilai yang benar-benar tersimpan di database memang 1/11/111/1111/11111.
+Root cause: di versioning.js, fungsi assignVersionAndStore():
+const sequenceVersion = lockRes.rows[0].next_sequence_version + 1;
+next_sequence_version adalah kolom bigint. Driver node-postgres (pg) SELALU mengembalikan bigint sebagai STRING ke JavaScript (supaya tidak kehilangan presisi di angka besar melebihi Number.MAX_SAFE_INTEGER). Operator + di JS pada string melakukan concatenation, bukan penjumlahan: "1" + 1 -> "11", "11" + 1 -> "111", dst. Ini bug murni logic, bukan syntax error -- tidak ada error yang muncul saat dijalankan, cuma hasilnya salah.
+Kenapa penting: sequence_version adalah kontrak inti event-sourcing (strict increment per production_job_id, dipakai untuk urutan apply event, optimistic lock, dan gap detection di worker.js -- lihat bagian 31 & 33). Kalau dibiarkan, urutan bisa berhenti monoton di angka tertentu tergantung pola digit, merusak gap detection dan replay tanpa ada error yang kelihatan di awal.
+
+Fix
+Satu baris diubah di versioning.js:
+const sequenceVersion = parseInt(lockRes.rows[0].next_sequence_version, 10) + 1;
+Diterapkan via sed langsung di VPS, diverifikasi dengan grep sebelum lanjut.
+Catatan buat next steps ke depan: field bigint lain yang dibaca dari Postgres lewat pg (misal current_version, id-id numerik lain kalau ada) berpotensi kena masalah sama persis -- perlu direview satu-satu tiap ada operasi aritmatika pada hasil query. Belum diaudit menyeluruh, dicatat sebagai next step.
+
+Cleanup data test yang kepalsuan
+Job + event yang sempat tercipta dengan sequence_version rusak (production_job_id 12026029-6817-45f0-ab7a-a67ac06b0d3a) dihapus total lewat Supabase MCP, bukan coba direnumber manual (lebih aman untuk data test).
+Urutan hapus yang benar (ketahuan lewat trial-error FK constraint): orders.production_job_id -> NULL dulu, baru request_dedup.event_id yang mereferensi event terkait dihapus, baru production_jobs.created_from_event_id -> NULL, baru production_events dihapus, baru production_jobs dihapus. FK chain: orders -> production_jobs -> production_events <- request_dedup (2 arah referensi ke production_events, harus dilepas dari kedua sisi sebelum bisa hapus event).
+Order test a6f807b1-881d-4f00-bc2c-98faa5ff4b52 dikembalikan ke status draft, production_job_id NULL -- siap dipakai ulang untuk testing berikutnya.
+
+Testing ulang setelah fix — SUKSES PENUH
+production_job baru (id 25352257-4cff-4377-85d7-2a63b05146fe) dibuat, 5 event berturut-turut:
+order.confirmed_for_production (seq 1) -> order.stage_changed x2 (seq 2, 3) -> qc.passed (seq 4) -> shipment.dispatched (seq 5)
+sequence_version sekarang berurutan normal 1-2-3-4-5, diverifikasi langsung ke database.
+current_stage production_jobs setelah semua event: jahit -- SESUAI DESAIN. 2x STAGE_COMPLETED memajukan gudang -> cutting -> jahit. qc.passed dan shipment.dispatched TIDAK memindahkan stage (sesuai kontrak stateLayer.js bagian 33: hanya order.stage_changed yang menulis ke current_stage), keduanya cuma numpang versioning/audit trail. Ini bukan bug, memang belum ada logic khusus qc/shipment yang mengubah stage.
+current_version = next_sequence_version = 5, gap_status tetap CLOSED sepanjang proses -- tidak ada gap yang kebuka.
+orders.status berubah jadi in_production, production_job_id ter-link dengan benar (mengonfirmasi ulang fix bagian 35 tetap jalan benar).
+
+Catatan metodologi testing
+Karena server.js belum diadaptasi (endpoint asli /v1/orders dkk belum ada, cuma /v1/whoami test dari bagian 27), testing dilakukan dengan memanggil ingestEvent() langsung dari script Node sekali-pakai (test-e2e.js, test-e2e-step2.js) di VPS, bukan lewat HTTP/curl. Cukup untuk memverifikasi logic ingestion+versioning+stateLayer, tapi BELUM menguji lapisan HTTP/routing yang nanti dipakai server.js sungguhan -- itu next step terpisah.
+Script test tidak di-commit ke repo (sengaja, cuma alat bantu sekali pakai) -- kalau perlu diulang, bisa ditulis ulang dari pola yang sama.
+
+Next steps (update dari bagian 35)
+[ ] Audit field bigint lain yang dibaca lewat pg untuk potensi bug string-concat yang sama (lihat catatan fix di atas)
+[ ] Adaptasi server.js -- endpoint asli /v1/orders dkk pakai tenantResolver + ingestEvent(), supaya testing berikutnya bisa lewat HTTP sungguhan (bukan panggil fungsi langsung)
+[ ] Putuskan desain child bundle (BUNDLE_ALLOCATION) -- masih return 501 di ingestion.js, blocker sejak bagian 13/31/33
+[ ] Function/procedure spec-lock (atomik: reserve inventory + ledger + event) -- belum tersentuh
+[ ] Desain validasi 2 pihak staff jahit vs QC (quantity validation di STAGE_COMPLETED) -- masih ide, belum ada skema/event (lihat bagian 34)
+[ ] Sisa hardening VPS: UFW, Fail2Ban, backup rutin, cleanup key ssh-rsa lama (bagian 11) -- belum blocking, disarankan sebelum backend live/expose ke publik
