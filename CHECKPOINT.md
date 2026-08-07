@@ -931,7 +931,7 @@ Migrasi ke pm2
 - Ditemukan proses `node server.js` lama (PID dari sesi bagian 39, foreground) masih nyantol pegang port 3000 -- pm2 gagal start dengan error EADDRINUSE berulang-ulang sampai proses lama di-`kill -9` manual.
 - Setelah port bebas, `pm2 restart fashion-platform` berhasil, log `out.log` bersih: "Fashion platform gateway running on port 3000", "Realtime relay listening on order_state_changed", "Gap monitor worker started."
 - Pelajaran: kalau migrasi dari foreground ke pm2 (atau proses manager apapun), WAJIB pastikan proses lama benar-benar mati dulu (`sudo lsof -i :PORT` -> `kill -9 PID`) sebelum start yang baru, jangan asumsi proses lama otomatis hilang begitu sesi SSH ganti.
-- pm2 SEKARANG jadi cara resmi jalanin server.js -- next step belum dikerjakan: `pm2 startup` + `pm2 save` supaya auto-boot kalau VPS restart (belum dilakukan sesi ini).
+- pm2 SEKARANG jadi cara resmi jalanin server.js -- pm2 startup + pm2 save SUDAH dikerjakan (lihat bagian di bawah).
 
 Reset PIN staff demo (lupa PIN lama)
 - PIN Admin Demo dan Staff Packing Demo di-reset ke `1234` langsung lewat Supabase MCP (`crypt('1234', gen_salt('bf'))`), bukan lewat endpoint (belum ada endpoint ganti-PIN-sendiri).
@@ -955,7 +955,12 @@ Data test yang dipakai (tenant demo, id 8ae20661-626d-42c9-b930-6c926ca3ce99)
 - production_job dipakai testing: id 25352257-4cff-4377-85d7-2a63b05146fe (current_stage packing) -- job_locks-nya sudah released (released_at terisi dari force-unlock test), aman dipakai ulang testing lock berikutnya
 
 Next steps
-[ ] pm2 startup + pm2 save -- supaya server auto-boot kalau VPS restart, belum dilakukan
+[x] pm2 startup + pm2 save -- SELESAI, lihat catatan di bawah
 [ ] Tambah SUPABASE_URL + SUPABASE_SECRET_KEY ke .env, baru bisa test /v1/photos (masih 503 sampai ini diisi)
 [ ] Verifikasi channel NOTIFY order_state_changed end-to-end (trigger perubahan production_jobs, cek WebSocket relay neruskan) -- listener kekonfirmasi jalan tanpa error saat startup, tapi belum ditest end-to-end
 [ ] Lanjut next steps lama: desain BUNDLE_ALLOCATION (child bundle), hardening VPS (UFW, Fail2Ban, backup, cleanup key ssh-rsa lama -- bagian 11)
+
+pm2 startup + save — SELESAI ✅
+- `pm2 startup systemd -u Rakyat --hp /home/Rakyat` dijalankan, systemd service `pm2-Rakyat.service` terpasang & enabled (`/etc/systemd/system/pm2-Rakyat.service`)
+- `pm2 save` sukses, process list `fashion-platform` di-freeze ke `~/.pm2/dump.pm2` -- ini yang dibaca `pm2 resurrect` saat boot
+- Verifikasi: `sudo systemctl status pm2-Rakyat` -> `Loaded: enabled`, tapi `Active: inactive (dead)` -- ini NORMAL, bukan bug. pm2 daemon saat ini jalan sebagai proses yang di-spawn manual (dari `pm2 restart` sebelumnya), bukan di-spawn oleh systemd, jadi systemd belum "pegang" prosesnya sampai reboot beneran terjadi. Validasi penuh (`Active: active`) baru bisa dikonfirmasi setelah VPS di-reboot resmi -- next step, sengaja digabung nanti pas hardening VPS (UFW/Fail2Ban) yang juga kemungkinan butuh reboot.
