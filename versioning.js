@@ -130,7 +130,7 @@ async function assignVersionAndStore({ tenantId, productionJobId, eventType, eve
       if (lockRes.rowCount === 0) {
         throw new Error(`production_job ${productionJobId} tidak ditemukan`);
       }
-      const sequenceVersion = lockRes.rows[0].next_sequence_version + 1;
+      const sequenceVersion = parseInt(lockRes.rows[0].next_sequence_version, 10) + 1;
 
       const eventRes = await c.query(
         `INSERT INTO production_events

@@ -63,7 +63,7 @@ async function tryApplyToState(client, event) {
     `SELECT current_version FROM production_jobs WHERE id = $1`,
     [production_job_id]
   );
-  const lastApplied = trackerRes.rows[0]?.current_version ?? 0;
+  const lastApplied = parseInt(trackerRes.rows[0]?.current_version ?? 0, 10);
 
   if (sequence_version <= lastApplied) {
     // stale / duplikat — bukan error, cuma diabaikan dan dicatat
@@ -121,7 +121,7 @@ async function applyWithOptimisticLock(client, event, expectedPreviousVersion, r
       `SELECT current_version FROM production_jobs WHERE id = $1`,
       [production_job_id]
     );
-    const actualCurrent = recheck.rows[0]?.current_version ?? 0;
+    const actualCurrent = parseInt(recheck.rows[0]?.current_version ?? 0, 10);
 
     if (actualCurrent >= sequence_version) {
       // sudah diproses proses lain -> DISCARD, jangan retry apply
@@ -146,10 +146,15 @@ async function openGapIfNeeded(client, tenant_id, production_job_id) {
     [production_job_id]
   );
   if (res.rowCount > 0) {
+    const jobRes = await client.query(
+      `SELECT current_version FROM production_jobs WHERE id = $1`,
+      [production_job_id]
+    );
+    const markerVersion = parseInt(jobRes.rows[0]?.current_version ?? 0, 10);
     await client.query(
-      `INSERT INTO production_events (tenant_id, production_job_id, event_type, event_version, payload)
-       VALUES ($1, $2, 'gap.opened', 1, $3::jsonb)`,
-      [tenant_id, production_job_id, JSON.stringify({ reason: "out_of_order_event" })]
+      `INSERT INTO gap_audit_log (tenant_id, production_job_id, reason, version_at_gap)
+       VALUES ($1, $2, $3, $4)`,
+      [tenant_id, production_job_id, "out_of_order_event", markerVersion]
     );
   }
 }
@@ -184,12 +189,13 @@ async function chainApplyFromBuffer(client, tenant_id, production_job_id) {
     `SELECT current_version FROM production_jobs WHERE id = $1`,
     [production_job_id]
   );
-  const lastApplied = currentRes.rows[0]?.current_version ?? 0;
+  const lastApplied = parseInt(currentRes.rows[0]?.current_version ?? 0, 10);
+  const rowSeqVersion = parseInt(row.sequence_version, 10);
 
-  if (row.sequence_version === lastApplied + 1) {
+  if (rowSeqVersion === lastApplied + 1) {
     await client.query(
       `DELETE FROM pending_events WHERE production_job_id = $1 AND sequence_version = $2`,
-      [production_job_id, row.sequence_version]
+      [production_job_id, rowSeqVersion]
     );
     await tryApplyToState(client, {
       id: row.id,
@@ -198,7 +204,7 @@ async function chainApplyFromBuffer(client, tenant_id, production_job_id) {
       event_type: row.event_type,
       event_version: row.event_version,
       payload: row.payload,
-      sequence_version: row.sequence_version,
+      sequence_version: rowSeqVersion,
     });
     // tryApplyToState akan panggil chainApplyFromBuffer lagi secara rekursif
   }
