@@ -18,11 +18,19 @@
  *   ditambah lewat migration add_pending_events_and_stale_event_log,
  *   sebelumnya kelewat pas migrasi schema v2 pertama)
  *
+ * PENTING — production_jobs SELALU sudah ada sebelum event apapun diproses.
+ * Row-nya dibuat di versioning.js (bukan di file ini), pas event
+ * order.confirmed_for_production masuk (lihat CHECKPOINT bagian
+ * evaluasi ulang saran ChatGPT soal production_jobs/next_sequence_version).
+ * File ini TIDAK PERNAH insert row baru ke production_jobs — kalau
+ * row-nya belum ada, itu artinya ada bug di versioning.js/ingestion.js,
+ * bukan kasus normal yang perlu ditolerir di sini.
+ *
  * PENTING — RLS & tenant context:
  * File ini TIDAK membuka koneksi sendiri dari pool. Semua fungsi menerima
  * `client` sebagai parameter pertama — client ini WAJIB sudah berada di
  * dalam transaction yang sudah di-SET LOCAL app.tenant_id (lihat pola
- * withTenant() di worker.js / CHECKPOINT bagian 22). Ini supaya RLS
+ * withTenant() di db.js / CHECKPOINT bagian 22). Ini supaya RLS
  * benar-benar aktif per operasi, bukan cuma dekorasi.
  * Pemanggil (ingestion.js) bertanggung jawab untuk:
  *   1. Resolve order_id -> production_job_id SEBELUM insert ke
@@ -89,7 +97,7 @@ async function tryApplyToState(client, event) {
 }
 
 async function applyWithOptimisticLock(client, event, expectedPreviousVersion, retryCount = 0) {
-  const { tenant_id, production_job_id, sequence_version, event_type, payload } = event;
+  const { production_job_id, sequence_version, event_type, payload } = event;
 
   // current_stage cuma di-update kalau event-nya order.stage_changed
   // (satu-satunya event yang punya field relevan, lihat EVENT_CONTRACTS.md)
@@ -105,24 +113,10 @@ async function applyWithOptimisticLock(client, event, expectedPreviousVersion, r
   );
 
   if (updateRes.rowCount === 0) {
-    // Baris belum ada (production_job baru) -> insert
-    if (expectedPreviousVersion === 0) {
-      await client.query(
-        `INSERT INTO production_jobs (id, tenant_id, order_id, current_stage, current_version, gap_status)
-         VALUES ($1, $2, $3, $4, $5, 'CLOSED')
-         ON CONFLICT (id) DO NOTHING`,
-        [
-          production_job_id,
-          tenant_id,
-          payload?.order_id || null,
-          newStage || "consultation_styling",
-          sequence_version,
-        ]
-      );
-      return true;
-    }
-
-    // 0 row affected -> aturan discard/retry yang eksplisit (bukan ambigu)
+    // production_jobs SELALU sudah ada duluan (dibuat di versioning.js) —
+    // jadi 0 row affected di sini cuma berarti version mismatch (race
+    // condition antar-request), bukan "row belum ada". Aturan
+    // discard/retry yang eksplisit:
     const recheck = await client.query(
       `SELECT current_version FROM production_jobs WHERE id = $1`,
       [production_job_id]

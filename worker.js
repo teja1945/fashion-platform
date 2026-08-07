@@ -1,4 +1,4 @@
-const { pool } = require("./db");
+const { pool, withTenant, getActiveTenantIds } = require("./db");
 
 const GAP_THRESHOLD_SECONDS = 60;
 const GRACE_PERIOD_SECONDS = 300;
@@ -8,41 +8,10 @@ const ADVISORY_LOCK_KEY = 771100;
 let isRunning = false;
 
 /**
- * Ambil daftar tenant aktif lewat function security-definer (app_user tidak
- * punya SELECT langsung ke tabel tenants — lihat CHECKPOINT bagian 27 & 30).
- */
-async function getActiveTenantIds(client) {
-  const res = await client.query(`SELECT * FROM list_active_tenant_ids()`);
-  return res.rows.map((r) => r.id);
-}
-
-/**
- * Jalankan sebuah callback di dalam transaction yang sudah di-scope ke satu
- * tenant (SET LOCAL app.tenant_id), sesuai pola wajib di CHECKPOINT bagian 22.
- * Pakai set_config(), bukan `SET LOCAL ... $1`, karena SET LOCAL tidak bisa
- * menerima parameterized query (pelajaran dari bagian 27).
- */
-async function withTenant(client, tenantId, fn) {
-  await client.query("BEGIN");
-  try {
-    await client.query(`SELECT set_config('app.tenant_id', $1, true)`, [tenantId]);
-    const result = await fn(client);
-    await client.query("COMMIT");
-    return result;
-  } catch (err) {
-    await client.query("ROLLBACK");
-    throw err;
-  }
-}
-
-/**
  * Cek & eskalasi gap untuk SATU tenant. Dipanggil di dalam withTenant(),
  * jadi semua query di sini otomatis kefilter RLS ke tenant tsb.
  */
 async function checkGapsForTenant(client, tenantId) {
-  // Ambil job yang gap_status-nya masih OPEN/RECOVERING, digabung dengan
-  // event gap.opened TERAKHIR (siklus gap saat ini) dan cek apakah sudah
-  // pernah di-escalate di siklus yang sama (biar tidak double-fire).
   const openGaps = await client.query(
     `SELECT pj.id AS production_job_id,
             pj.gap_status,
@@ -138,7 +107,6 @@ async function checkGaps() {
         try {
           await withTenant(client, tenantId, (c) => checkGapsForTenant(c, tenantId));
         } catch (err) {
-          // Satu tenant error tidak boleh menghentikan tenant lain.
           console.error(`checkGaps: gagal proses tenant ${tenantId}:`, err.message);
         }
       }
@@ -151,11 +119,6 @@ async function checkGaps() {
   }
 }
 
-/**
- * Resolve gap secara manual (dipanggil dari endpoint admin, bukan dari
- * worker loop). Wajib dikasih tenantId eksplisit karena tidak jalan di
- * dalam loop per-tenant seperti checkGaps().
- */
 async function manuallyResolveGap(tenantId, productionJobId, resolvedBy) {
   const client = await pool.connect();
   client.on("error", (err) => {
