@@ -852,3 +852,48 @@ Next steps (paling prioritas begitu sesi lanjut):
  Test manual tiap endpoint (staff login, lock acquire/release, photos, orders) -- belum pernah dites sama sekali, resiko ada bug yang baru ketauan pas jalan beneran
  Verifikasi nama channel LISTEN vs trigger NOTIFY yang aktual di database
  Lanjut next steps lama yang belum tersentuh: tenant_id di stateLayer/versioning/ingestion (sebenarnya sudah ada dari sesi sebelumnya, cek ulang konsistensi), desain BUNDLE_ALLOCATION, hardening VPS (UFW, Fail2Ban, backup, cleanup key ssh-rsa lama)
+
+39. Deploy server.js Baru ke VPS + Bugfix Kritis app_user Akses Schema extensions — SELESAI SEBAGIAN ✅⚠️ (8 Agustus 2026)
+Status: server.js baru (bagian 38) berhasil di-deploy & endpoint inti sudah kebukti jalan. Endpoint admin & photos belum dites.
+
+Proses deploy
+- File server.js baru ditransfer dari room lain via pola download Claude chat -> Termux ~/downloads -> scp ke VPS (~/fashion-platform/server.js.new)
+- File lama dibackup: server.js.bak-20260808
+- node -c server.js -- syntax OK, tidak ada error
+- Server dijalankan manual foreground (node server.js) -- BELUM pakai pm2/systemd/nohup, lihat next steps
+
+Bug kritis ditemukan & diperbaiki -- app_user tidak punya USAGE ke schema extensions
+- Testing /v1/staff/login gagal: error: function crypt(unknown, text) does not exist
+- Root cause: extension pgcrypto (fungsi crypt(), gen_salt()) ada di schema extensions (dipindah dari public sejak bagian 30, sama seperti citext). app_user TIDAK PERNAH dikasih GRANT USAGE ke schema extensions -- jadi meskipun search_path diarahkan ke situ, Postgres tetap menolak karena permission schema-level belum ada. Diverifikasi lewat has_schema_privilege('app_user', 'extensions', 'USAGE') -> false sebelum fix.
+- Sempat dicoba fix pertama (TIDAK CUKUP sendirian, tapi tetap berguna sebagai defense-in-depth): ALTER ROLE app_user SET search_path = public, extensions -- ternyata search_path role-level ini punya risiko stale kalau koneksi lewat Session Pooler reuse backend yang sudah login sebelum ALTER ROLE dijalankan. Untuk mengatasi itu juga, db.js ditambah pool.on("connect", client => client.query("SET search_path TO public, extensions")) supaya search_path di-set eksplisit tiap kali pool bikin koneksi fisik baru, apapun kondisi pooler-nya.
+- Fix yang benar-benar menyelesaikan masalah: GRANT USAGE ON SCHEMA extensions TO app_user; (dijalankan via Supabase MCP, migration grant_app_user_usage_extensions_schema). Setelah ini has_schema_privilege -> true, dan tidak perlu restart server (perubahan permission langsung efektif di koneksi berikutnya).
+- Pelajaran: search_path yang benar TIDAK CUKUP kalau schema privilege (USAGE) belum di-grant -- dua hal ini terpisah di Postgres, sering ketuker asumsi. Checklist ke depan: kalau ada extension baru dipindah ke schema non-public, jangan cuma atur search_path, WAJIB juga GRANT USAGE ON SCHEMA ke role aplikasi.
+
+File yang berubah sesi ini
+- server.js -- diganti total ke versi baru (lihat bagian 38 untuk detail perubahan)
+- db.js -- ditambah pool.on("connect") untuk set search_path eksplisit (defense-in-depth, lihat di atas)
+- .env -- ditambah API_KEY (di-generate lewat openssl rand -hex 32), sebelumnya belum ada sama sekali (dicatat sebagai belum dibutuhkan di bagian 27, sekarang jadi dibutuhkan karena server.js baru pertama kali pakai requireApiKey)
+
+Data test yang ditambahkan (tenant demo)
+- 2 staff dummy di-seed langsung ke database (bukan lewat endpoint, karena belum ada endpoint create-staff): Admin Demo (role admin) dan Staff Packing Demo (role staff, assigned_stage packing, disesuaikan sama current_stage job test yang ada dari bagian 36)
+- Ini data test, boleh dihapus/diganti kapan saja begitu ada tenant/staff sungguhan
+
+Endpoint yang SUDAH dites & lolos
+- GET /v1/whoami -- OK
+- GET /v1/orders -- OK, data join ke production_jobs benar
+- GET /v1/staff/list -- OK
+- POST /v1/staff/login -- OK (setelah bugfix extensions di atas)
+- POST /v1/lock/acquire -- OK, termasuk proteksi double-lock (job yang sudah dikunci ditolak dengan benar)
+- POST /v1/lock/release -- OK
+
+Endpoint yang BELUM dites
+- POST /v1/photos -- akan gagal 503 duluan karena SUPABASE_URL dan SUPABASE_SECRET_KEY belum ada di .env (dicatat sejak bagian 27, belum dibutuhkan sampai sekarang)
+- POST /v1/lock/force-unlock, /v1/staff/revoke, /v1/staff/offboard (endpoint khusus admin) -- belum dites, staff Admin Demo sudah di-seed tapi belum dipakai login
+- Channel LISTEN/NOTIFY order_state_changed -- terkonfirmasi ke-listen tanpa error saat startup (artinya trigger-nya memang masih ada di database), tapi belum ditest end-to-end (belum ada yang trigger NOTIFY beneran dan dicek apakah WebSocket relay meneruskannya)
+
+Next steps
+[ ] Lanjut test endpoint admin: staff/login pakai Admin Demo, lalu force-unlock, staff/revoke, staff/offboard
+[ ] Tambah SUPABASE_URL + SUPABASE_SECRET_KEY ke .env, baru bisa test /v1/photos
+[ ] Verifikasi channel NOTIFY order_state_changed end-to-end (trigger perubahan production_jobs, cek apakah WebSocket relay neruskan)
+[ ] Server masih dijalankan manual foreground (node server.js) -- perlu dipindah ke proses yang persist (pm2, systemd service, atau minimal nohup) supaya tidak mati kalau sesi SSH/Termux terputus
+[ ] Lanjut next steps lama yang belum tersentuh: desain BUNDLE_ALLOCATION (child bundle), hardening VPS (UFW, Fail2Ban, backup, cleanup key ssh-rsa lama -- bagian 11)
