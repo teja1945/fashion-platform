@@ -923,3 +923,39 @@ Risiko room paralel (bagian 24, "kontradiksi antar-sesi/room") jadi SEDIKIT LEBI
 Next steps
 [ ] Catat tanggal pasti token expired begitu ketahuan (cek di GitHub -> Developer settings -> Tokens classic -> lihat expiry exact date), reminder perpanjang sebelum itu
 [ ] Kalau nanti mau lebih rapi/aman lagi: pertimbangkan pindah dari PAT classic ke fine-grained PAT (scope lebih sempit, cuma ke 1 repo spesifik) -- tidak urgent, PAT classic saat ini sudah cukup aman untuk kebutuhan solo dev
+
+41. Server.js Pindah ke pm2 + Endpoint Admin Full Dites — SELESAI ✅ (8 Agustus 2026)
+Status: Semua endpoint admin di server.js baru (bagian 38-39) sudah dites lengkap dan lolos. Server sekarang persisten via pm2, bukan foreground manual lagi.
+
+Migrasi ke pm2
+- Ditemukan proses `node server.js` lama (PID dari sesi bagian 39, foreground) masih nyantol pegang port 3000 -- pm2 gagal start dengan error EADDRINUSE berulang-ulang sampai proses lama di-`kill -9` manual.
+- Setelah port bebas, `pm2 restart fashion-platform` berhasil, log `out.log` bersih: "Fashion platform gateway running on port 3000", "Realtime relay listening on order_state_changed", "Gap monitor worker started."
+- Pelajaran: kalau migrasi dari foreground ke pm2 (atau proses manager apapun), WAJIB pastikan proses lama benar-benar mati dulu (`sudo lsof -i :PORT` -> `kill -9 PID`) sebelum start yang baru, jangan asumsi proses lama otomatis hilang begitu sesi SSH ganti.
+- pm2 SEKARANG jadi cara resmi jalanin server.js -- next step belum dikerjakan: `pm2 startup` + `pm2 save` supaya auto-boot kalau VPS restart (belum dilakukan sesi ini).
+
+Reset PIN staff demo (lupa PIN lama)
+- PIN Admin Demo dan Staff Packing Demo di-reset ke `1234` langsung lewat Supabase MCP (`crypt('1234', gen_salt('bf'))`), bukan lewat endpoint (belum ada endpoint ganti-PIN-sendiri).
+
+Endpoint admin -- semua dites & lolos (via curl manual, header x-api-key + x-staff-token)
+- POST /v1/staff/login -- OK untuk role admin & staff, token tersimpan di sessionMap in-memory
+- POST /v1/lock/acquire -- OK, staff biasa berhasil ambil lock job yang stage-nya cocok assigned_stage
+- POST /v1/lock/force-unlock -- OK, admin berhasil paksa unlock, admin_override=true kesimpen
+- POST /v1/staff/revoke -- OK, token staff yang direvoke langsung invalid (diverifikasi ulang: dipakai lagi -> "sesi kadaluarsa")
+- POST /v1/staff/offboard -- OK, staff.is_active jadi false + auto-revoke sesi aktif. Staff Packing Demo di-set balik is_active=true sesudahnya (cuma testing, bukan offboard sungguhan)
+
+Catatan header/auth yang sekarang terverifikasi (berguna buat testing ke depan, jangan tebak-tebak lagi)
+- Header API key: `x-api-key` (huruf kecil semua, sesuai req.header() yang case-insensitive)
+- Header staff session: `x-staff-token` (dari requireStaffSession, line ~120-135 server.js)
+- Body /v1/lock/acquire & /v1/lock/force-unlock: `production_job_id`
+- Body /v1/staff/revoke & /v1/staff/offboard: `target_staff_id`
+
+Data test yang dipakai (tenant demo, id 8ae20661-626d-42c9-b930-6c926ca3ce99)
+- Admin Demo: id 35afaab6-8095-4763-9029-ba22aaa23607, PIN 1234
+- Staff Packing Demo: id 5ee69701-fdc5-4a37-8453-4e3de0d51fd0, PIN 1234, assigned_stage packing, is_active true (sudah di-restore)
+- production_job dipakai testing: id 25352257-4cff-4377-85d7-2a63b05146fe (current_stage packing) -- job_locks-nya sudah released (released_at terisi dari force-unlock test), aman dipakai ulang testing lock berikutnya
+
+Next steps
+[ ] pm2 startup + pm2 save -- supaya server auto-boot kalau VPS restart, belum dilakukan
+[ ] Tambah SUPABASE_URL + SUPABASE_SECRET_KEY ke .env, baru bisa test /v1/photos (masih 503 sampai ini diisi)
+[ ] Verifikasi channel NOTIFY order_state_changed end-to-end (trigger perubahan production_jobs, cek WebSocket relay neruskan) -- listener kekonfirmasi jalan tanpa error saat startup, tapi belum ditest end-to-end
+[ ] Lanjut next steps lama: desain BUNDLE_ALLOCATION (child bundle), hardening VPS (UFW, Fail2Ban, backup, cleanup key ssh-rsa lama -- bagian 11)
