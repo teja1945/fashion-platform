@@ -897,3 +897,29 @@ Next steps
 [ ] Verifikasi channel NOTIFY order_state_changed end-to-end (trigger perubahan production_jobs, cek apakah WebSocket relay neruskan)
 [ ] Server masih dijalankan manual foreground (node server.js) -- perlu dipindah ke proses yang persist (pm2, systemd service, atau minimal nohup) supaya tidak mati kalau sesi SSH/Termux terputus
 [ ] Lanjut next steps lama yang belum tersentuh: desain BUNDLE_ALLOCATION (child bundle), hardening VPS (UFW, Fail2Ban, backup, cleanup key ssh-rsa lama -- bagian 11)
+
+40. VPS Sekarang Punya Akses Push ke GitHub (Personal Access Token) — SELESAI ✅ (8 Agustus 2026)
+Status: Setup sekali jalan, VPS sekarang bisa git pull dan git push langsung tanpa lewat GitHub app lagi.
+
+Kenapa ini dibutuhkan
+Sebelumnya remote origin di VPS pakai URL HTTPS polos tanpa kredensial (git config --get credential.helper kosong) -- git push dari VPS pasti gagal diminta auth yang tidak kita punya. Update CHECKPOINT.md selama ini selalu manual: copy draft dari Claude -> paste/commit lewat GitHub app. Proses ini lambat dan rawan human error (salah paste, lupa scroll ke bawah, dll).
+
+Setup yang dilakukan
+1. Generate Personal Access Token (classic) di GitHub: Settings -> Developer settings -> Personal access tokens -> Tokens (classic) -> Generate new token (classic). Scope yang dicentang: repo saja (cukup untuk push/pull, tidak perlu scope lain). Expiration: 90 hari dari 8 Agustus 2026 (kira-kira expired awal November 2026 -- INGAT perpanjang sebelum itu, lihat next steps).
+2. Token ditempel ke remote URL: git remote set-url origin https://TOKEN@github.com/teja1945/fashion-platform.git (dijalankan di ~/fashion-platform di VPS).
+3. Verifikasi: git pull berhasil tanpa diminta password/username -- auth token jalan.
+
+Catatan keamanan
+Token TERSIMPAN di ~/fashion-platform/.git/config (plaintext, bagian URL remote) -- ini file lokal VPS, bukan di repo yang di-push (git tidak pernah commit isi .git/config sendiri), jadi aman dari kebocoran lewat repo publik. Tapi tetap sensitif kalau VPS diakses orang lain -- konsisten dengan prinsip keamanan VPS di bagian 11.
+Token TIDAK PERNAH di-paste ke chat Claude manapun (baik saat generate maupun saat dipakai) -- konsisten dengan prinsip bagian 13 soal kredensial.
+
+Dampak ke workflow ke depan
+Update CHECKPOINT.md sekarang punya 2 cara, keduanya valid:
+1. (BARU, lebih cepat) Lewat VPS: Claude kasih draft bagian baru -> ditransfer ke VPS (pola scp yang sudah biasa dipakai) -> cat >> CHECKPOINT.md << 'EOF' ... EOF (lihat bagian 29, prinsipnya tidak berubah, cuma sekarang append-nya di VPS bukan GitHub app) -> git add CHECKPOINT.md && git commit -m "..." && git push.
+2. (LAMA, tetap bisa dipakai) Lewat GitHub app manual, terutama kalau lagi tidak megang sesi VPS atau mau commit cepat tanpa transfer file.
+Root cause masalah caching raw.githubusercontent.com (bagian "Catatan Kolaborasi") TIDAK berubah -- commit lewat jalur mana pun (VPS atau GitHub app) tetap kena risiko cache yang sama. Tetap WAJIB pakai commit SHA di raw link tiap mulai sesi baru, verifikasi eksplisit sebelum lanjut kerja.
+Risiko room paralel (bagian 24, "kontradiksi antar-sesi/room") jadi SEDIKIT LEBIH TINGGI sekarang -- 2 room yang sama-sama punya akses push VPS bisa saling tabrakan kalau push bersamaan tanpa git pull dulu. Prinsip wajib: SELALU git pull sebelum mulai edit/append file apapun di VPS yang bakal di-push, apapun itu (CHECKPOINT.md, kode, dll) -- sudah konsisten dengan pelajaran bagian 35 soal git log --oneline -10 di awal sesi.
+
+Next steps
+[ ] Catat tanggal pasti token expired begitu ketahuan (cek di GitHub -> Developer settings -> Tokens classic -> lihat expiry exact date), reminder perpanjang sebelum itu
+[ ] Kalau nanti mau lebih rapi/aman lagi: pertimbangkan pindah dari PAT classic ke fine-grained PAT (scope lebih sempit, cuma ke 1 repo spesifik) -- tidak urgent, PAT classic saat ini sudah cukup aman untuk kebutuhan solo dev
