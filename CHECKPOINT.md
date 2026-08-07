@@ -817,3 +817,38 @@ Next steps (update dari bagian 35)
 
 ---
 Bagian 37 (7-8 Agt 2026): Bugfix gap-detection di stateLayer.js selesai + verified. Tabel gap_audit_log baru dibuat. server.js 531 baris ter-commit tapi belum diaudit. Next: audit server.js, tenant_id di stateLayer/versioning/ingestion, BUNDLE_ALLOCATION, hardening VPS.
+
+38. Audit + Rewrite server.js ke Schema v2 — SELESAI DITULIS, BELUM DI-DEPLOY/DITES (8 Agustus 2026)
+Status: server.js baru sudah ditulis lengkap, sudah dikasih ke Teja (belum di-commit/deploy ke VPS, belum ditest).
+
+Temuan audit server.js versi lama (commit efa90d1):
+- Masih 100% versi LTOS lama kecuali /v1/whoami -- semua endpoint bisnis (orders, staff, lock, photos) query tabel yang sudah tidak ada (order_state, gap_status sebagai tabel, order_locks, stage_photos -- nama sebenarnya production_jobs, job_locks, production_stage_photos)
+- TIDAK ADA endpoint bisnis yang pakai tenantResolver atau pola withTenant() -- RLS efektif tidak aktif di jalur manapun kecuali /v1/whoami
+- /v1/events percaya tenant_id dari body request mentah, bukan dari subdomain -- celah keamanan (klien bisa kirim tenant_id tenant lain)
+- ALLOWED_STAGES di /v1/photos hardcode, tidak sesuai tenant_pipeline_stages yang configurable
+
+Ketidaksinkronan file vs DB live yang ditemukan di tengah proses:
+- File db/fashion_platform_schema_v2.sql (baru dipindah dari VPS ke repo, commit ad6d4b0) TERNYATA cuma migration awal (bagian 24) -- TIDAK termasuk kolom yang ditambah belakangan (pipeline_snapshot, next_sequence_version, created_from_event_id di production_jobs; production_job_id di orders -- lihat bagian 34/35)
+- Struktur kolom asli diverifikasi LANGSUNG ke database via psql \d (bukan dari file manapun): staff pakai id/full_name/is_active (BUKAN staff_id/name/active seperti yang dipakai server.js lama), job_locks pakai production_job_id/locked_by_staff_id
+- Pelajaran: file schema di repo BELUM tentu representasi lengkap DB live -- kalau butuh struktur tabel akurat, selalu \d langsung ke DB, jangan percaya file manapun (konsisten dengan pelajaran bagian 24/27)
+
+server.js baru -- perubahan utama:
+- tenantResolver + withTenant() dipasang di SEMUA endpoint bisnis (orders, staff, lock, photos)
+- tenant_id di /v1/events dipaksa dari req.tenantId (subdomain), bukan dari body -- celah keamanan lama tertutup
+- Nama kolom dibenerin sesuai DB live (staff.id/full_name/is_active, job_locks.production_job_id/locked_by_staff_id, orders.production_job_id)
+- /v1/photos validasi stage terhadap pipeline_snapshot job itu sendiri, bukan hardcode array
+- Session staff nyimpen tenantId, ditolak kalau token dipakai lintas-tenant
+- job_locks: dicek eksplisit ada-tidaknya active lock (released_at IS NULL) sebelum insert -- TIDAK andalkan unique constraint DB, karena Postgres anggap tiap NULL "distinct" (unique constraint (tenant_id, production_job_id, released_at) tidak cukup mencegah double-lock)
+- startBundleSplitReconciler() SENGAJA di-comment di startup -- masih desain lama (bagian 31), berpotensi crash/salah baca tabel kalau dijalankan sekarang
+
+BELUM diselesaikan/dicek di sesi ini:
+ Nama channel LISTEN "order_state_changed" di realtime relay -- belum diverifikasi apakah trigger NOTIFY ini masih terpasang & masih pakai nama sama di schema v2 (perlu cek trigger langsung di database)
+ work_log.stage di endpoint force-unlock diisi hardcode 'unknown' -- bisa dirapikan dengan query stage job dulu sebelum insert
+ server.js baru BELUM di-commit ke VPS/repo, BELUM ditest sama sekali (bukan cuma belum end-to-end, malah belum dijalankan sekali pun)
+
+Next steps (paling prioritas begitu sesi lanjut):
+ Deploy server.js baru ke VPS (edit via GitHub app -> git pull di VPS, lihat instruksi di chat)
+ node -c server.js dulu (cek syntax) sebelum restart server beneran
+ Test manual tiap endpoint (staff login, lock acquire/release, photos, orders) -- belum pernah dites sama sekali, resiko ada bug yang baru ketauan pas jalan beneran
+ Verifikasi nama channel LISTEN vs trigger NOTIFY yang aktual di database
+ Lanjut next steps lama yang belum tersentuh: tenant_id di stateLayer/versioning/ingestion (sebenarnya sudah ada dari sesi sebelumnya, cek ulang konsistensi), desain BUNDLE_ALLOCATION, hardening VPS (UFW, Fail2Ban, backup, cleanup key ssh-rsa lama)
