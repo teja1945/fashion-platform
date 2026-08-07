@@ -740,3 +740,29 @@ Pola yang disepakati untuk dibahas nanti pas desain `resolveStageTransition`/QC 
 3. Desain ulang `resolveStageTransition`/QC handling dengan quantity validation (lihat item desain di atas)
 4. Putuskan desain child bundle (BUNDLE_ALLOCATION) — masih blocker sejak bagian 13
 5. Bundle-split reconciler di `worker.js` masih belum diadaptasi (menunggu keputusan poin 4)
+
+35. Bugfix Kritis — orders.production_job_id Tidak Pernah Diupdate — SELESAI ✅ (7 Agustus 2026)
+Status: Ditemukan saat cross-check antar-room (lihat catatan di bawah soal kerja paralel), langsung diperbaiki.
+
+Konteks penemuan
+Room ini sempat mulai menulis ulang db.js/stateLayer.js/versioning.js/ingestion.js dari nol tanpa tahu room lain sudah mengerjakan hal yang sama (commit 4480829 & 4a0d0ca). Begitu dicek git log, kerjaan dihentikan SEBELUM di-push (tidak ada file yang sempat ditimpa) -- lihat kerjaan room lain dulu via git show, baru lanjut dari situ. Ini mencegah konflik/kerja dobel yang sia-sia.
+
+Bug yang ditemukan
+Di versioning.js createProductionJob(): row production_jobs baru berhasil dibuat, event order.confirmed_for_production berhasil diinsert, TAPI kolom orders.production_job_id TIDAK PERNAH di-UPDATE.
+Akibat: ingestion.js (resolveProductionJobId(), query SELECT production_job_id FROM orders WHERE id = $1) akan SELALU gagal menemukan job untuk SEMUA event setelah confirmation (order.stage_changed, qc.*, payment.*, shipment.*). Pipeline event-sourcing putus total di step kedua -- tidak pernah bisa jalan end-to-end meski kelihatan "selesai" dari sisi kode.
+Ditemukan lewat review manual line-by-line (baca ulang diff commit 4480829), bukan dari testing -- belum ada testing end-to-end yang dijalankan sampai sejauh ini.
+
+Fix yang diterapkan (commit 50464fd, versioning.js 148 -> 173 baris)
+Tambah UPDATE orders SET production_job_id = $1, status = 'in_production', updated_at = now() WHERE id = $2 setelah production_jobs dan event pertama berhasil diinsert, di transaction yang sama.
+Sekalian ditambah guard duplicate confirmation yang sebelumnya tidak ada: SELECT production_job_id FROM orders WHERE id = $1 FOR UPDATE di awal transaction -- kalau order sudah punya production_job_id, langsung return job yang sudah ada ({ alreadyExists: true, productionJobId }) alih-alih bikin production_jobs baru yang dobel. FOR UPDATE lock juga menutup race condition kalau confirmation ke-trigger 2x bersamaan (misal double-click UI atau retry network).
+
+Pelajaran untuk sesi berikutnya
+SELALU cek git log --oneline -10 di awal sesi manapun sebelum mulai menulis file yang berpotensi sudah dikerjakan room lain -- checkpoint sendiri sering telat diupdate dibanding commit asli (raw link CHECKPOINT.md bisa ketinggalan beberapa commit dari kerjaan terbaru).
+Kode yang "terlihat lengkap" (semua fungsi ada, tidak ada error saat ditulis) tetap perlu direview eksplisit untuk konsistensi lintas-file -- bug ini murni logic gap (lupa 1 UPDATE), bukan syntax error atau typo, jadi tidak akan ketahuan tanpa baca ulang dengan sengaja mencari titik sambungan antar-fungsi.
+
+Next steps (belum berubah dari bagian 34, masih next step utama)
+[ ] Testing end-to-end pertama kali: order.confirmed_for_production -> order.stage_changed -> qc.passed -> shipment.dispatched, verifikasi tiap langkah beneran nyambung (termasuk verifikasi production_job_id di orders sudah keisi setelah confirmation)
+[ ] Adaptasi server.js -- endpoint asli /v1/orders dkk pakai tenantResolver + ingestEvent()
+[ ] Putuskan desain child bundle (BUNDLE_ALLOCATION) -- masih diblokir/return 501 di ingestion.js
+[ ] Function/procedure spec-lock (atomik: reserve inventory + ledger + event) -- belum tersentuh
+[ ] Ide baru dari sesi ini (belum didesain): validasi 2 pihak staff jahit vs QC untuk jumlah pcs -- staff submit pending, QC konfirmasi jumlah aktual, discrepancy dicatat dengan jejak (mirip pola spec_substitution_requests). Nyambung ke QR dual-jalur (bagian 26). BELUM ada desain skema/event, bahas lagi sebelum mulai coding modul QC.
