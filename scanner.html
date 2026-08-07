@@ -1,0 +1,1540 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>LTOS Scanner</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0B0B0C;
+    --panel: #17161A;
+    --panel-raised: #1E1C1F;
+    --hairline: #2C2924;
+    --gold: #C9A24B;
+    --gold-bright: #E4C077;
+    --gold-dim: #8A6C2E;
+    --ink: #ECE6D8;
+    --ink-dim: #9C9484;
+    --danger: #B4483A;
+    --stitch: repeating-linear-gradient(90deg, currentColor 0 6px, transparent 6px 11px);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+  }
+
+  body {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    background:
+      radial-gradient(ellipse 900px 500px at 50% -10%, rgba(201,162,75,0.10), transparent 60%),
+      var(--bg);
+  }
+
+  .top-bar {
+    padding: 18px 20px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: relative;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .top-bar::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: -3px;
+    height: 3px;
+    background: var(--stitch);
+    color: var(--gold-dim);
+    opacity: 0.6;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Cormorant Garamond', 'Georgia', serif;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    color: var(--ink);
+  }
+
+  .brand .crown { color: var(--gold-bright); flex-shrink: 0; }
+  .brand em { font-style: normal; color: var(--gold-bright); }
+
+  .staff-chip {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    background: rgba(201,162,75,0.12);
+    border: 1px solid var(--gold-dim);
+    color: var(--gold-bright);
+    padding: 5px 11px;
+    border-radius: 20px;
+    display: none;
+  }
+
+  main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 20px 18px 28px;
+    gap: 18px;
+    max-width: 480px;
+    width: 100%;
+    margin: 0 auto;
+  }
+
+  /* ---- Signage plate: reused motif from brand photography (dark plate, thin gold rule, crown mark) ---- */
+  .plate {
+    border: 1px solid var(--gold-dim);
+    border-radius: 4px;
+    padding: 9px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: linear-gradient(180deg, rgba(201,162,75,0.06), transparent);
+    align-self: flex-start;
+  }
+  .plate .crown { color: var(--gold-bright); width: 14px; height: 14px; flex-shrink: 0; }
+  .plate span {
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--gold-bright);
+  }
+
+  /* ---- Setup screen ---- */
+  .setup-card {
+    background: var(--panel);
+    border-radius: 6px;
+    padding: 22px 18px;
+    border: 1px solid var(--hairline);
+  }
+
+  .setup-title {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 24px;
+    font-weight: 700;
+    margin: 12px 0 4px;
+    color: var(--ink);
+  }
+
+  .setup-sub {
+    font-size: 12.5px;
+    color: var(--ink-dim);
+    margin: 0 0 20px;
+    line-height: 1.5;
+  }
+
+  label {
+    display: block;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--gold);
+    font-weight: 700;
+    margin-bottom: 6px;
+    margin-top: 16px;
+  }
+
+  label:first-of-type { margin-top: 0; }
+
+  input, select {
+    width: 100%;
+    padding: 12px 13px;
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    font-size: 16px;
+    font-family: inherit;
+    background: var(--bg);
+    color: var(--ink);
+  }
+
+  input::placeholder { color: #6B6459; }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--gold);
+  }
+
+  .pin-status {
+    font-size: 11.5px;
+    margin-top: 6px;
+    min-height: 14px;
+  }
+  .pin-status.ok { color: #7FAE6E; }
+  .pin-status.err { color: var(--danger); }
+  .pin-status.pending { color: var(--ink-dim); }
+
+  /* ---- Stage grid: compact 2-col cards so all 7 fit without scroll ---- */
+  .stage-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .stage-btn {
+    position: relative;
+    padding: 0;
+    border: 1px solid var(--hairline);
+    background: var(--bg);
+    border-radius: 4px;
+    font-family: inherit;
+    color: var(--ink);
+    cursor: pointer;
+    text-align: left;
+    overflow: hidden;
+    display: flex;
+    align-items: stretch;
+    height: 52px;
+  }
+
+  .stage-btn:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .stage-thumb {
+    width: 52px;
+    flex-shrink: 0;
+    background-size: cover;
+    background-position: center;
+    position: relative;
+  }
+
+  .stage-thumb::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, rgba(11,11,12,0.15), rgba(11,11,12,0.55));
+  }
+
+  .stage-num {
+    position: absolute;
+    top: 3px;
+    left: 4px;
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--gold-bright);
+    z-index: 1;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  }
+
+  .stage-label {
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--ink);
+  }
+
+  .stage-btn.active {
+    border-color: var(--gold);
+    box-shadow: 0 0 0 1px var(--gold);
+  }
+
+  .stage-btn.active .stage-label {
+    color: var(--gold-bright);
+  }
+
+  .primary-btn {
+    width: 100%;
+    padding: 15px;
+    background: var(--gold);
+    color: #1A1608;
+    border: none;
+    border-radius: 4px;
+    font-size: 15px;
+    font-weight: 700;
+    font-family: inherit;
+    margin-top: 22px;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+  }
+
+  .primary-btn:active { background: var(--gold-bright); }
+
+  .primary-btn:disabled {
+    background: #3A362C;
+    color: #6B6459;
+    cursor: not-allowed;
+  }
+
+  .link-btn {
+    background: none;
+    border: none;
+    color: var(--gold);
+    font-size: 12px;
+    text-decoration: underline;
+    padding: 8px 0;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  /* ---- Scan screen ---- */
+  .scan-screen { display: none; flex: 1; flex-direction: column; gap: 14px; }
+  .scan-screen.visible { display: flex; }
+  .setup-screen.hidden { display: none; }
+
+  .context-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    padding: 11px 15px;
+  }
+
+  .context-bar .who {
+    font-size: 13px;
+    color: var(--ink);
+    font-weight: 700;
+  }
+
+  .context-bar .stage-tag {
+    font-family: 'Inter', sans-serif;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    background: rgba(201,162,75,0.12);
+    border: 1px solid var(--gold-dim);
+    padding: 4px 10px;
+    border-radius: 20px;
+    color: var(--gold-bright);
+  }
+
+  #reader {
+    border-radius: 5px;
+    overflow: hidden;
+    border: 1px solid var(--gold-dim);
+    background: black;
+  }
+
+  #reader video { border-radius: 3px; }
+
+  .scan-hint {
+    text-align: center;
+    font-size: 12.5px;
+    color: var(--ink-dim);
+    padding: 2px 0;
+  }
+
+  .or-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: #6B6459;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .or-divider::before, .or-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--hairline);
+  }
+
+  .gallery-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 13px;
+    background: var(--panel);
+    border: 1px dashed var(--gold-dim);
+    border-radius: 4px;
+    color: var(--gold-bright);
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  .gallery-btn:active {
+    background: var(--panel-raised);
+  }
+
+  .divider {
+    height: 2px;
+    background: var(--stitch);
+    color: var(--hairline);
+    margin: 2px 0;
+  }
+
+  .log-title {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--gold);
+    font-weight: 700;
+  }
+
+  .log-list {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+
+  .log-entry {
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    border-left: 3px solid var(--hairline);
+    border-radius: 4px;
+    padding: 9px 13px;
+    font-size: 12.5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .log-entry.ok { border-left-color: var(--gold); }
+  .log-entry.err { border-left-color: var(--danger); }
+
+  .log-entry .id {
+    font-family: 'SF Mono', 'Roboto Mono', monospace;
+    font-weight: 700;
+    color: var(--ink);
+  }
+
+  .log-entry .status {
+    font-size: 11px;
+    color: var(--ink-dim);
+  }
+
+  .log-entry.err .status { color: var(--danger); }
+
+  .empty-log {
+    font-size: 12.5px;
+    color: #6B6459;
+    text-align: center;
+    padding: 18px 0;
+  }
+
+  /* ---- Toast ---- */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 20px;
+    right: 20px;
+    max-width: 440px;
+    margin: 0 auto;
+    background: var(--panel-raised);
+    border: 1px solid var(--gold-dim);
+    color: var(--ink);
+    padding: 15px 17px;
+    border-radius: 5px;
+    font-size: 13.5px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    transform: translateY(120%);
+    transition: transform 0.25s ease;
+    z-index: 100;
+  }
+
+  .toast.show { transform: translateY(0); }
+  .toast.error { border-color: var(--danger); }
+
+  .toast strong {
+    display: block;
+    margin-bottom: 2px;
+    font-family: 'SF Mono', monospace;
+    font-size: 11px;
+    color: var(--gold-bright);
+  }
+  .toast.error strong { color: var(--danger); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .toast { transition: none; }
+  }
+
+  /* ---- Active orders bar ---- */
+  .active-orders-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 4px 0 2px;
+  }
+  .active-orders-bar .label {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink-dim);
+    width: 100%;
+    margin-bottom: 2px;
+  }
+  .active-order-chip {
+    font-family: 'SF Mono', 'Roboto Mono', monospace;
+    font-size: 11.5px;
+    font-weight: 700;
+    background: rgba(201,162,75,0.12);
+    border: 1px solid var(--gold-dim);
+    color: var(--gold-bright);
+    padding: 4px 10px;
+    border-radius: 20px;
+  }
+
+  /* ---- Override modal ---- */
+  .override-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .override-modal-box {
+    background: var(--panel);
+    border: 1px solid var(--gold-dim);
+    border-radius: 6px;
+    padding: 20px 18px;
+    max-width: 380px;
+    width: 100%;
+  }
+  .override-modal-title {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 8px;
+  }
+  .override-modal-text {
+    font-size: 12.5px;
+    color: var(--ink-dim);
+    line-height: 1.5;
+    margin-bottom: 14px;
+  }
+  .override-modal-box input {
+    margin-bottom: 6px;
+  }
+  .override-modal-err {
+    font-size: 11.5px;
+    color: var(--danger);
+    min-height: 14px;
+    margin-bottom: 8px;
+  }
+  .override-modal-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .camera-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .camera-modal-box {
+    background: var(--panel);
+    border: 1px solid var(--gold-dim);
+    border-radius: 6px;
+    padding: 20px 18px;
+    max-width: 380px;
+    width: 100%;
+  }
+  .camera-modal-title {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 8px;
+  }
+  .camera-modal-text {
+    font-size: 12.5px;
+    color: var(--ink-dim);
+    line-height: 1.5;
+    margin-bottom: 14px;
+  }
+  #cameraPreviewImg {
+    width: 100%;
+    max-height: 220px;
+    object-fit: cover;
+    border-radius: 4px;
+    margin-bottom: 12px;
+    border: 1px solid var(--gold-dim);
+  }
+  .camera-capture-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 13px;
+    background: var(--panel);
+    border: 1px dashed var(--gold-dim);
+    border-radius: 4px;
+    color: var(--gold-bright);
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    margin-bottom: 8px;
+  }
+  .camera-modal-err {
+    font-size: 11.5px;
+    color: var(--danger);
+    min-height: 14px;
+    margin-bottom: 8px;
+  }
+  .camera-modal-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: flex-end;
+  }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <div class="brand">
+    <svg class="crown" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2 19h20l-1.5-9-4 3-4.5-6-4.5 6-4-3L2 19z"/></svg>
+    LTOS <em>Scanner</em>
+  </div>
+  <div class="staff-chip" id="staffChip"></div>
+</div>
+
+<main>
+
+  <!-- SETUP SCREEN -->
+  <div class="setup-screen" id="setupScreen">
+    <div class="setup-card">
+      <div class="plate">
+        <svg class="crown" viewBox="0 0 24 24" fill="currentColor"><path d="M2 19h20l-1.5-9-4 3-4.5-6-4.5 6-4-3L2 19z"/></svg>
+        <span>Tailored Workflow</span>
+      </div>
+      <h1 class="setup-title">Mulai sesi kerja</h1>
+      <p class="setup-sub">Pilih nama dan tahap yang sedang kamu kerjakan. Ini menentukan status apa yang dikirim saat kamu scan order.</p>
+
+      <label for="backendUrl">Alamat server LTOS</label>
+      <input id="backendUrl" type="text" placeholder="http://192.168.1.5:3000" autocomplete="off">
+
+      <label for="apiKey">Kode akses server</label>
+      <input id="apiKey" type="password" placeholder="minta ke admin" autocomplete="off">
+
+      <label for="staffSelect">Nama kamu</label>
+      <select id="staffSelect">
+        <option value="">-- pilih nama --</option>
+      </select>
+
+      <label for="staffPin">PIN</label>
+      <input id="staffPin" type="password" inputmode="numeric" placeholder="Masukkan PIN" autocomplete="off" maxlength="6">
+      <div class="pin-status" id="pinStatus"></div>
+
+      <label>Tahap yang kamu kerjakan</label>
+<!-- stage-grid manual dihapus -- stage otomatis dari assigned_stage -->
+
+      <button class="primary-btn" id="startBtn" disabled>Mulai scan</button>
+    </div>
+  </div>
+
+  <!-- SCAN SCREEN -->
+  <div class="scan-screen" id="scanScreen">
+    <div class="context-bar">
+      <div class="who" id="whoLabel"></div>
+      <div class="stage-tag" id="stageBar"></div>
+    </div>
+
+    <div class="active-orders-bar" id="activeOrdersBar" style="display:none;"></div>
+
+    <div id="reader"></div>
+    <div id="fileReader" style="display:none;"></div>
+    <div class="scan-hint">Arahkan kamera ke QR pada order</div>
+
+    <div class="or-divider"><span>atau</span></div>
+
+    <label class="gallery-btn" for="galleryInput">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+      Pilih gambar QR dari galeri
+    </label>
+    <input type="file" id="galleryInput" accept="image/*" style="display:none;">
+
+    <button class="link-btn" id="changeSessionBtn">Ganti nama / tahap</button>
+    <button class="link-btn" id="resetDataBtn">Reset data tersimpan</button>
+
+    <div class="divider"></div>
+
+    <div class="log-title">Scan terakhir</div>
+    <div class="log-list" id="logList">
+      <div class="empty-log">Belum ada scan di sesi ini.</div>
+    </div>
+  </div>
+
+</main>
+
+<div class="override-modal" id="overrideModal" style="display:none;">
+  <div class="override-modal-box">
+    <div class="override-modal-title" id="overrideModalTitle">Kamu masih pegang order lain</div>
+    <div class="override-modal-text">Kalau ini kerjaan urgent, minta admin masukin PIN buat lanjut.</div>
+    <input type="password" id="overridePinInput" inputmode="numeric" placeholder="PIN Admin" maxlength="6">
+    <div class="override-modal-err" id="overrideModalErr"></div>
+    <div class="override-modal-actions">
+      <button class="link-btn" id="overrideCancelBtn">Batal</button>
+      <button class="primary-btn" id="overrideConfirmBtn" style="margin-top:0;">Konfirmasi Override</button>
+    </div>
+  </div>
+</div>
+
+<div class="camera-modal" id="cameraModal" style="display:none;">
+  <div class="camera-modal-box">
+    <div class="camera-modal-title" id="cameraModalTitle">Wajib foto sebelum selesai</div>
+    <div class="camera-modal-text" id="cameraModalText">Ambil foto hasil kerja untuk tahap ini.</div>
+    <img id="cameraPreviewImg" style="display:none;" alt="Preview foto">
+    <label class="camera-capture-btn" for="cameraFileInput" id="cameraCaptureLabel">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      Buka Kamera
+    </label>
+    <input type="file" id="cameraFileInput" accept="image/*" capture="environment" style="display:none;">
+    <div class="camera-modal-err" id="cameraModalErr"></div>
+    <div class="camera-modal-actions">
+      <button class="link-btn" id="cameraCancelBtn">Batal</button>
+      <button class="primary-btn" id="cameraUploadBtn" style="margin-top:0;" disabled>Upload & Selesai</button>
+    </div>
+  </div>
+</div>
+
+<div class="override-modal" id="qcChoiceModal" style="display:none;">
+  <div class="override-modal-box">
+    <div class="override-modal-title">Hasil QC untuk order ini?</div>
+    <div class="override-modal-text">Pilih salah satu sebelum lanjut foto wajib.</div>
+    <div class="override-modal-actions">
+      <button class="link-btn" id="qcChoiceCancelBtn">Batal</button>
+      <button class="primary-btn" id="qcRejectBtn" style="margin-top:0;background:#b91c1c;">Reject QC</button>
+      <button class="primary-btn" id="qcPassBtn" style="margin-top:0;">Lolos QC (Selesai)</button>
+    </div>
+  </div>
+</div>
+
+<div class="override-modal" id="rejectFormModal" style="display:none;">
+  <div class="override-modal-box">
+    <div class="override-modal-title">Reject QC — kembalikan ke tahap</div>
+    <select id="rejectTargetStageSelect" style="width:100%;padding:10px;margin-top:10px;border-radius:8px;border:1px solid #ccc;"></select>
+    <textarea id="rejectReasonInput" placeholder="Alasan reject (wajib)" style="width:100%;margin-top:10px;padding:10px;border-radius:8px;border:1px solid #ccc;min-height:70px;"></textarea>
+    <div class="override-modal-err" id="rejectFormModalErr"></div>
+    <div class="override-modal-actions">
+      <button class="link-btn" id="rejectFormCancelBtn">Batal</button>
+      <button class="primary-btn" id="rejectFormNextBtn" style="margin-top:0;">Lanjut ke Foto</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"><strong id="toastTitle"></strong><span id="toastMsg"></span></div>
+
+<script>
+// Urutan & label tahap FINAL (sesuai keputusan terakhir) -- entity_type/payload.stage
+// yang dikirim ke backend memakai "key" di bawah ini.
+const STAGES = [
+  { key: "consultation_styling", label: "Konsultasi & Styling", img: "assets/stage-1-konsultasi-styling.jpg" },
+  { key: "cutting",              label: "Cutting",              img: "assets/stage-2-cutting.jpg" },
+  { key: "sewing",                label: "Jahit",                img: "assets/stage-3-jahit.jpg" },
+  { key: "qc",                    label: "QC",                   img: "assets/stage-4-qc.jpg" },
+  { key: "finishing",             label: "Finishing",            img: "assets/stage-5-finishing.jpg" },
+  { key: "packing",               label: "Packing",              img: "assets/stage-6-packing.jpg" },
+  { key: "shipping",              label: "Pengiriman",           img: "assets/stage-7-pengiriman.jpg" },
+];
+
+const MANDATORY_PHOTO_STAGES = ["cutting", "sewing", "qc", "finishing"];
+
+let selectedStage = null;
+let html5QrCode = null;
+let scanLocked = false;
+let pendingOverrideEntityId = null; // entity_id yang lagi nunggu PIN admin
+let pendingPhotoEntityId = null;
+let pendingPhotoStage = null;
+let capturedPhotoBase64 = null;
+
+function getActiveOrders() {
+  try {
+    return JSON.parse(localStorage.getItem("ltos_active_orders") || "[]");
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveActiveOrders(list) {
+  localStorage.setItem("ltos_active_orders", JSON.stringify(list));
+  renderActiveOrders();
+}
+
+function renderActiveOrders() {
+  const list = getActiveOrders();
+  if (list.length === 0) {
+    activeOrdersBar.style.display = "none";
+    activeOrdersBar.innerHTML = "";
+    return;
+  }
+  activeOrdersBar.style.display = "flex";
+  activeOrdersBar.innerHTML =
+    '<div class="label">Sedang dikerjakan</div>' +
+    list.map(o => `<span class="active-order-chip">${o.entity_id}</span>`).join("");
+}
+
+async function callAcquire(entityId, overridePin) {
+  const backendUrl = localStorage.getItem("ltos_backend_url").replace(/\/$/, "");
+  const apiKey = localStorage.getItem("ltos_api_key");
+  const staffToken = localStorage.getItem("ltos_token");
+
+  const body = { entity_id: entityId };
+  if (overridePin) body.override_admin_pin = overridePin;
+
+  const res = await fetch(`${backendUrl}/v1/lock/acquire`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": apiKey, "x-staff-token": staffToken },
+    body: JSON.stringify(body),
+  });
+  const responseBody = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, body: responseBody };
+}
+
+async function callRelease(entityId) {
+  const backendUrl = localStorage.getItem("ltos_backend_url").replace(/\/$/, "");
+  const apiKey = localStorage.getItem("ltos_api_key");
+  const staffToken = localStorage.getItem("ltos_token");
+
+  const res = await fetch(`${backendUrl}/v1/lock/release`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": apiKey, "x-staff-token": staffToken },
+    body: JSON.stringify({ entity_id: entityId }),
+  });
+  return res.json().catch(() => ({}));
+}
+
+function openOverrideModal(entityId, activeOrderId) {
+  pendingOverrideEntityId = entityId;
+  overrideModalTitle.textContent = `Kamu masih pegang ${activeOrderId}`;
+  overridePinInput.value = "";
+  overrideModalErr.textContent = "";
+  overrideModal.style.display = "flex";
+  overridePinInput.focus();
+}
+
+function closeOverrideModal() {
+  pendingOverrideEntityId = null;
+  overrideModal.style.display = "none";
+}
+
+function openCameraModal(entityId, stage) {
+  pendingPhotoEntityId = entityId;
+  pendingPhotoStage = stage;
+  capturedPhotoBase64 = null;
+  const stageLabel = (STAGES.find(s => s.key === stage) || {}).label || stage;
+  cameraModalText.textContent = `Ambil foto hasil kerja untuk tahap ${stageLabel}.`;
+  cameraPreviewImg.style.display = "none";
+  cameraPreviewImg.src = "";
+  cameraFileInput.value = "";
+  cameraModalErr.textContent = "";
+  cameraUploadBtn.disabled = true;
+  cameraModal.style.display = "flex";
+}
+
+function closeCameraModal() {
+  pendingPhotoEntityId = null;
+  pendingPhotoStage = null;
+  capturedPhotoBase64 = null;
+  pendingPhotoAction = "complete";
+  pendingRejectTargetStage = null;
+  pendingRejectReason = null;
+  cameraModal.style.display = "none";
+}
+
+function openQcChoiceModal(entityId) {
+  pendingQcEntityId = entityId;
+  qcChoiceModal.style.display = "flex";
+}
+
+function closeQcChoiceModal() {
+  pendingQcEntityId = null;
+  qcChoiceModal.style.display = "none";
+}
+
+function openRejectFormModal(entityId) {
+  pendingRejectEntityId = entityId;
+  rejectTargetStageSelect.value = "";
+  rejectReasonInput.value = "";
+  rejectFormModalErr.textContent = "";
+  rejectFormModal.style.display = "flex";
+}
+
+function closeRejectFormModal() {
+  pendingRejectEntityId = null;
+  rejectFormModal.style.display = "none";
+}
+
+async function compressImage(file, maxDim, quality) {
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file, { resizeWidth: maxDim, resizeQuality: "medium" });
+  } catch (err) {
+    throw new Error("Gagal membaca foto (format tidak didukung atau file rusak)");
+  }
+
+  let width = bitmap.width;
+  let height = bitmap.height;
+  if (width > height && width > maxDim) {
+    height = Math.round(height * (maxDim / width));
+    width = maxDim;
+  } else if (height >= width && height > maxDim) {
+    width = Math.round(width * (maxDim / height));
+    height = maxDim;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error("Gagal mengompres foto"));
+          return;
+        }
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("Gagal membaca hasil kompresi"));
+        reader.onload = () => resolve(reader.result);
+        reader.readAsDataURL(blob);
+      },
+      "image/jpeg",
+      quality
+    );
+  });
+}
+
+async function uploadPhoto(entityId, stage, photoBase64) {
+  const backendUrl = localStorage.getItem("ltos_backend_url").replace(/\/$/, "");
+  const apiKey = localStorage.getItem("ltos_api_key");
+  const staffToken = localStorage.getItem("ltos_token");
+
+  const res = await fetch(`${backendUrl}/v1/photos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": apiKey, "x-staff-token": staffToken },
+    body: JSON.stringify({ entity_id: entityId, stage: stage, photo_base64: photoBase64 }),
+  });
+  const body = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, body };
+}
+
+const setupScreen = document.getElementById("setupScreen");
+const scanScreen = document.getElementById("scanScreen");
+const backendUrlInput = document.getElementById("backendUrl");
+const staffSelect = document.getElementById("staffSelect");
+const staffPinInput = document.getElementById("staffPin");
+const pinStatus = document.getElementById("pinStatus");
+const startBtn = document.getElementById("startBtn");
+const stageGrid = document.getElementById("stageGrid");
+const staffChip = document.getElementById("staffChip");
+const whoLabel = document.getElementById("whoLabel");
+const stageBar = document.getElementById("stageBar");
+const logList = document.getElementById("logList");
+const changeSessionBtn = document.getElementById("changeSessionBtn");
+const resetDataBtn = document.getElementById("resetDataBtn");
+const galleryInput = document.getElementById("galleryInput");
+const toast = document.getElementById("toast");
+const toastTitle = document.getElementById("toastTitle");
+const toastMsg = document.getElementById("toastMsg");
+const activeOrdersBar = document.getElementById("activeOrdersBar");
+const overrideModal = document.getElementById("overrideModal");
+const overrideModalTitle = document.getElementById("overrideModalTitle");
+const overridePinInput = document.getElementById("overridePinInput");
+const overrideModalErr = document.getElementById("overrideModalErr");
+const overrideCancelBtn = document.getElementById("overrideCancelBtn");
+const overrideConfirmBtn = document.getElementById("overrideConfirmBtn");
+const cameraModal = document.getElementById("cameraModal");
+const cameraModalTitle = document.getElementById("cameraModalTitle");
+const cameraModalText = document.getElementById("cameraModalText");
+const cameraPreviewImg = document.getElementById("cameraPreviewImg");
+const cameraFileInput = document.getElementById("cameraFileInput");
+const cameraModalErr = document.getElementById("cameraModalErr");
+const cameraCancelBtn = document.getElementById("cameraCancelBtn");
+const cameraUploadBtn = document.getElementById("cameraUploadBtn");
+const qcChoiceModal = document.getElementById("qcChoiceModal");
+const qcChoiceCancelBtn = document.getElementById("qcChoiceCancelBtn");
+const qcRejectBtn = document.getElementById("qcRejectBtn");
+const qcPassBtn = document.getElementById("qcPassBtn");
+const rejectFormModal = document.getElementById("rejectFormModal");
+const rejectTargetStageSelect = document.getElementById("rejectTargetStageSelect");
+const rejectReasonInput = document.getElementById("rejectReasonInput");
+const rejectFormModalErr = document.getElementById("rejectFormModalErr");
+const rejectFormCancelBtn = document.getElementById("rejectFormCancelBtn");
+const rejectFormNextBtn = document.getElementById("rejectFormNextBtn");
+
+const qcIndex = STAGES.findIndex(s => s.key === "qc");
+rejectTargetStageSelect.innerHTML = STAGES.slice(0, qcIndex)
+  .map(s => `<option value="${s.key}">${s.label}</option>`)
+  .join("");
+
+// restore saved config
+backendUrlInput.value = localStorage.getItem("ltos_backend_url") || "";
+document.getElementById("apiKey").value = localStorage.getItem("ltos_api_key") || "";
+const savedStaffId = localStorage.getItem("ltos_staff_id") || "";
+const savedStage = localStorage.getItem("ltos_stage");
+
+let staffVerified = false;
+let verifiedStaffName = "";
+let verifiedStaffToken = "";
+let pinCheckSeq = 0;
+let pinDebounceTimer = null;
+let pendingQcEntityId = null;
+let pendingRejectEntityId = null;
+let pendingPhotoAction = "complete";
+let pendingRejectTargetStage = null;
+let pendingRejectReason = null;
+
+async function loadStaffList() {
+  const backendUrl = backendUrlInput.value.trim().replace(/\/$/, "");
+  if (!backendUrl) return;
+
+  pinStatus.textContent = "Memuat daftar staff...";
+  pinStatus.className = "pin-status pending";
+
+  try {
+    const res = await fetch(`${backendUrl}/v1/staff/list`, {
+      headers: { "x-api-key": document.getElementById("apiKey").value.trim() },
+    });
+    const list = await res.json();
+
+    staffSelect.innerHTML = '<option value="">-- pilih nama --</option>';
+    list.forEach((s) => {
+      const opt = document.createElement("option");
+      opt.value = s.staff_id;
+      opt.textContent = s.name;
+      staffSelect.appendChild(opt);
+    });
+
+    if (savedStaffId) staffSelect.value = savedStaffId;
+    pinStatus.textContent = "";
+    pinStatus.className = "pin-status";
+  } catch (err) {
+    pinStatus.textContent = "Gagal memuat daftar staff. Cek alamat server.";
+    pinStatus.className = "pin-status err";
+  }
+}
+
+loadStaffList();
+backendUrlInput.addEventListener("blur", loadStaffList);
+
+async function verifyPin() {
+  staffVerified = false;
+  verifiedStaffName = "";
+  verifiedStaffToken = "";
+  validateForm();
+
+  const backendUrl = backendUrlInput.value.trim().replace(/\/$/, "");
+  const staffId = staffSelect.value;
+  const pin = staffPinInput.value.trim();
+
+  if (!backendUrl || !staffId || pin.length < 4) {
+    pinStatus.textContent = "";
+    pinStatus.className = "pin-status";
+    return;
+  }
+
+  const mySeq = ++pinCheckSeq;
+  pinStatus.textContent = "Memeriksa PIN...";
+  pinStatus.className = "pin-status pending";
+
+  try {
+    const res = await fetch(`${backendUrl}/v1/staff/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": document.getElementById("apiKey").value.trim(),
+      },
+      body: JSON.stringify({ staff_id: staffId, pin }),
+    });
+    const body = await res.json().catch(() => ({}));
+
+    if (mySeq !== pinCheckSeq) return; // ada input lebih baru, abaikan hasil ini
+
+    if (res.ok && body.ok) {
+      staffVerified = true;
+      verifiedStaffName = body.staff.name;
+      verifiedStaffToken = body.token;
+      selectedStage = body.staff.assigned_stage || null;
+      if (selectedStage) {
+        pinStatus.textContent = "PIN benar — " + body.staff.name + " (" + selectedStage + ")";
+        pinStatus.className = "pin-status ok";
+      } else {
+        staffVerified = false;
+        pinStatus.textContent = "Akun ini tidak punya stage kerja (admin) — tidak bisa scan dari sini";
+        pinStatus.className = "pin-status err";
+      }
+    } else {
+      pinStatus.textContent = body.error || "PIN salah";
+      pinStatus.className = "pin-status err";
+    }
+  } catch (err) {
+    if (mySeq !== pinCheckSeq) return; // ada input lebih baru, abaikan hasil ini
+    pinStatus.textContent = "Tidak bisa hubungi server.";
+    pinStatus.className = "pin-status err";
+  }
+  validateForm();
+}
+
+function scheduleVerifyPin() {
+  staffVerified = false;
+  validateForm();
+  clearTimeout(pinDebounceTimer);
+  pinDebounceTimer = setTimeout(verifyPin, 400);
+}
+
+staffSelect.addEventListener("change", () => {
+  staffPinInput.value = "";
+  verifyPin();
+});
+staffPinInput.addEventListener("input", scheduleVerifyPin);
+
+// stage-grid manual dihapus -- selectedStage sekarang otomatis dari assigned_stage saat login PIN
+
+const apiKeyInput = document.getElementById("apiKey");
+apiKeyInput.addEventListener("blur", loadStaffList);
+
+function validateForm() {
+  const ok = backendUrlInput.value.trim() && apiKeyInput.value.trim() && staffVerified && selectedStage;
+  startBtn.disabled = !ok;
+}
+
+backendUrlInput.addEventListener("input", validateForm);
+apiKeyInput.addEventListener("input", validateForm);
+
+startBtn.addEventListener("click", () => {
+  localStorage.setItem("ltos_backend_url", backendUrlInput.value.trim());
+  localStorage.setItem("ltos_api_key", apiKeyInput.value.trim());
+  localStorage.setItem("ltos_staff_id", staffSelect.value);
+  localStorage.setItem("ltos_staff_name", verifiedStaffName);
+  localStorage.setItem("ltos_stage", selectedStage);
+  localStorage.setItem("ltos_token", verifiedStaffToken);
+  enterScanMode();
+});
+
+changeSessionBtn.addEventListener("click", () => {
+  stopScanner();
+  setupScreen.classList.remove("hidden");
+  scanScreen.classList.remove("visible");
+  staffChip.style.display = "none";
+  staffPinInput.value = "";
+  staffVerified = false;
+  pinStatus.textContent = "";
+  pinStatus.className = "pin-status";
+  validateForm();
+});
+
+function enterScanMode() {
+  const name = localStorage.getItem("ltos_staff_name") || "";
+  const stageInfo = STAGES.find(s => s.key === selectedStage);
+
+  staffChip.textContent = name.toUpperCase();
+  staffChip.style.display = "inline-block";
+  whoLabel.textContent = name;
+  stageBar.textContent = stageInfo.label;
+
+  setupScreen.classList.add("hidden");
+  scanScreen.classList.add("visible");
+
+  renderActiveOrders();
+  startScanner();
+}
+
+function startScanner() {
+  html5QrCode = new Html5Qrcode("reader");
+  html5QrCode.start(
+    { facingMode: "environment" },
+    { fps: 10, qrbox: { width: 240, height: 240 } },
+    onScanSuccess,
+    () => {} // ignore per-frame scan errors
+  ).catch(err => {
+    showToast("Kamera tidak bisa dibuka", String(err), true);
+  });
+}
+
+function stopScanner() {
+  if (html5QrCode) {
+    html5QrCode.stop().catch(() => {});
+    html5QrCode = null;
+  }
+}
+
+galleryInput.addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  // html5-qrcode butuh instance sendiri buat scan file, terpisah dari
+  // instance kamera yang sedang aktif -- pakai div tersembunyi khusus
+  // (fileReader) supaya tidak bentrok dengan video kamera yang sedang
+  // tampil di div "reader".
+  const fileScanner = new Html5Qrcode("fileReader", /* verbose= */ false);
+
+  try {
+    const decodedText = await fileScanner.scanFile(file, false);
+    await onScanSuccess(decodedText);
+  } catch (err) {
+    showToast("Gagal baca QR", "Gambar tidak mengandung QR yang terbaca, coba gambar lain", true);
+  } finally {
+    galleryInput.value = ""; // reset supaya file yang sama bisa dipilih lagi
+  }
+});
+
+async function onScanSuccess(decodedText) {
+  if (scanLocked) return;
+  scanLocked = true;
+
+  const entityId = decodedText.trim();
+  const activeOrders = getActiveOrders();
+  const already = activeOrders.find(o => o.entity_id === entityId);
+
+  if (already) {
+    await finishOrder(entityId);
+  } else {
+    await startOrder(entityId);
+  }
+
+  setTimeout(() => { scanLocked = false; }, 1500);
+}
+
+async function startOrder(entityId) {
+  try {
+    const result = await callAcquire(entityId);
+
+    if (result.ok) {
+      const list = getActiveOrders();
+      list.push({ entity_id: entityId, started_at: new Date().toISOString() });
+      saveActiveOrders(list);
+      addLogEntry(entityId, "ok", "Mulai kerja");
+      showToast(entityId, "Mulai kerja pada order ini", false);
+      return;
+    }
+
+    if (result.status === 409 && result.body.active_order) {
+      openOverrideModal(entityId, result.body.active_order);
+      return;
+    }
+
+    addLogEntry(entityId, "err", result.body.error || `HTTP ${result.status}`);
+    showToast(entityId, result.body.error || "Gagal memulai order", true);
+  } catch (err) {
+    addLogEntry(entityId, "err", "Tidak bisa hubungi server");
+    showToast(entityId, "Tidak bisa hubungi server. Cek koneksi.", true);
+  }
+}
+
+async function finishOrder(entityId) {
+  const stage = localStorage.getItem("ltos_stage");
+
+  if (stage === "qc") {
+    openQcChoiceModal(entityId);
+    return;
+  }
+
+  if (MANDATORY_PHOTO_STAGES.includes(stage)) {
+    openCameraModal(entityId, stage);
+    return;
+  }
+
+  await completeFinish(entityId);
+}
+
+async function completeFinish(entityId) {
+  const backendUrl = localStorage.getItem("ltos_backend_url").replace(/\/$/, "");
+  const apiKey = localStorage.getItem("ltos_api_key");
+  const staffId = localStorage.getItem("ltos_staff_id");
+  const staffName = localStorage.getItem("ltos_staff_name");
+  const stage = localStorage.getItem("ltos_stage");
+
+  try {
+    const res = await fetch(`${backendUrl}/v1/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": apiKey },
+      body: JSON.stringify({
+        event_type: "STAGE_COMPLETED",
+        entity_type: "order",
+        entity_id: entityId,
+        source: `scanner-${staffName}`,
+        payload: { staff_id: staffId },
+      }),
+    });
+
+    const body = await res.json().catch(() => ({}));
+
+    if (res.ok) {
+      await callRelease(entityId);
+      const list = getActiveOrders().filter(o => o.entity_id !== entityId);
+      saveActiveOrders(list);
+      addLogEntry(entityId, "ok", `Selesai — versi ${body.entity_version ?? "?"} tersimpan`);
+      showToast(entityId, `Selesai: ${STAGES.find(s=>s.key===stage).label}`, false);
+    } else {
+      addLogEntry(entityId, "err", body.error || `HTTP ${res.status}`);
+      showToast(entityId, body.error || "Gagal mengirim", true);
+    }
+  } catch (err) {
+    addLogEntry(entityId, "err", "Tidak bisa hubungi server");
+    showToast(entityId, "Tidak bisa hubungi server. Cek koneksi.", true);
+  }
+}
+
+async function completeReject(entityId, targetStage, reason) {
+  const backendUrl = localStorage.getItem("ltos_backend_url").replace(/\/$/, "");
+  const apiKey = localStorage.getItem("ltos_api_key");
+  const staffId = localStorage.getItem("ltos_staff_id");
+  const staffName = localStorage.getItem("ltos_staff_name");
+
+  try {
+    const res = await fetch(`${backendUrl}/v1/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": apiKey },
+      body: JSON.stringify({
+        event_type: "STAGE_REJECTED",
+        entity_type: "order",
+        entity_id: entityId,
+        source: `scanner-${staffName}`,
+        payload: { staff_id: staffId, target_stage: targetStage, reason: reason },
+      }),
+    });
+
+    const body = await res.json().catch(() => ({}));
+
+    if (res.ok) {
+      await callRelease(entityId);
+      const list = getActiveOrders().filter(o => o.entity_id !== entityId);
+      saveActiveOrders(list);
+      const targetLabel = (STAGES.find(s => s.key === targetStage) || {}).label || targetStage;
+      addLogEntry(entityId, "ok", `Direject ke ${targetLabel} — versi ${body.entity_version ?? "?"} tersimpan`);
+      showToast(entityId, `Direject ke: ${targetLabel}`, false);
+    } else {
+      addLogEntry(entityId, "err", body.error || `HTTP ${res.status}`);
+      showToast(entityId, body.error || "Gagal mengirim reject", true);
+    }
+  } catch (err) {
+    addLogEntry(entityId, "err", "Tidak bisa hubungi server");
+    showToast(entityId, "Tidak bisa hubungi server. Cek koneksi.", true);
+  }
+}
+
+function addLogEntry(id, status, detail) {
+  const empty = logList.querySelector(".empty-log");
+  if (empty) empty.remove();
+
+  const entry = document.createElement("div");
+  entry.className = `log-entry ${status}`;
+  entry.innerHTML = `<span class="id">${id}</span><span class="status">${detail}</span>`;
+  logList.insertBefore(entry, logList.firstChild);
+
+  while (logList.children.length > 8) {
+    logList.removeChild(logList.lastChild);
+  }
+}
+
+function showToast(title, msg, isError) {
+  toastTitle.textContent = title;
+  toastMsg.textContent = msg;
+  toast.classList.toggle("error", isError);
+  toast.classList.add("show");
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => toast.classList.remove("show"), 3200);
+}
+
+overrideCancelBtn.addEventListener("click", () => {
+  closeOverrideModal();
+});
+
+overrideConfirmBtn.addEventListener("click", async () => {
+  const pin = overridePinInput.value.trim();
+  if (!pin) {
+    overrideModalErr.textContent = "PIN wajib diisi";
+    return;
+  }
+  const entityId = pendingOverrideEntityId;
+  if (!entityId) {
+    closeOverrideModal();
+    return;
+  }
+
+  overrideModalErr.textContent = "";
+  overrideConfirmBtn.disabled = true;
+
+  try {
+    const result = await callAcquire(entityId, pin);
+    if (result.ok) {
+      const list = getActiveOrders();
+      list.push({ entity_id: entityId, started_at: new Date().toISOString() });
+      saveActiveOrders(list);
+      addLogEntry(entityId, "ok", "Mulai kerja (override admin)");
+      showToast(entityId, "Mulai kerja (disetujui admin)", false);
+      closeOverrideModal();
+    } else {
+      overrideModalErr.textContent = result.body.error || "Override gagal";
+    }
+  } catch (err) {
+    overrideModalErr.textContent = "Tidak bisa hubungi server";
+  }
+  overrideConfirmBtn.disabled = false;
+});
+
+qcChoiceCancelBtn.addEventListener("click", () => {
+  closeQcChoiceModal();
+});
+
+qcPassBtn.addEventListener("click", () => {
+  const entityId = pendingQcEntityId;
+  closeQcChoiceModal();
+  pendingPhotoAction = "complete";
+  openCameraModal(entityId, "qc");
+});
+
+qcRejectBtn.addEventListener("click", () => {
+  const entityId = pendingQcEntityId;
+  closeQcChoiceModal();
+  openRejectFormModal(entityId);
+});
+
+rejectFormCancelBtn.addEventListener("click", () => {
+  closeRejectFormModal();
+});
+
+rejectFormNextBtn.addEventListener("click", () => {
+  const targetStage = rejectTargetStageSelect.value;
+  const reason = rejectReasonInput.value.trim();
+
+  if (!targetStage) {
+    rejectFormModalErr.textContent = "Pilih tahap tujuan";
+    return;
+  }
+  if (!reason) {
+    rejectFormModalErr.textContent = "Alasan wajib diisi";
+    return;
+  }
+
+  const entityId = pendingRejectEntityId;
+  pendingPhotoAction = "reject";
+  pendingRejectTargetStage = targetStage;
+  pendingRejectReason = reason;
+  closeRejectFormModal();
+  openCameraModal(entityId, "qc");
+});
+
+async function handlePhotoFileSelected(file) {
+  if (!file) return;
+  cameraModalErr.textContent = "";
+  cameraUploadBtn.disabled = true;
+  try {
+    const compressed = await compressImage(file, 480, 0.6);
+    capturedPhotoBase64 = compressed;
+    cameraPreviewImg.src = compressed;
+    cameraPreviewImg.style.display = "block";
+    cameraUploadBtn.disabled = false;
+  } catch (err) {
+    cameraModalErr.textContent = "Gagal memproses foto, coba lagi: " + err.message;
+  }
+}
+
+cameraFileInput.addEventListener("change", () => {
+  handlePhotoFileSelected(cameraFileInput.files[0]);
+});
+
+cameraCancelBtn.addEventListener("click", () => {
+  closeCameraModal();
+});
+
+cameraUploadBtn.addEventListener("click", async () => {
+  if (!capturedPhotoBase64 || !pendingPhotoEntityId || !pendingPhotoStage) return;
+  cameraModalErr.textContent = "";
+  cameraUploadBtn.disabled = true;
+  try {
+    const result = await uploadPhoto(pendingPhotoEntityId, pendingPhotoStage, capturedPhotoBase64);
+    if (result.ok) {
+      const entityId = pendingPhotoEntityId;
+      const action = pendingPhotoAction;
+      const targetStage = pendingRejectTargetStage;
+      const reason = pendingRejectReason;
+      closeCameraModal();
+      if (action === "reject") {
+        await completeReject(entityId, targetStage, reason);
+      } else {
+        await completeFinish(entityId);
+      }
+    } else {
+      cameraModalErr.textContent = result.body.error || "Gagal upload foto";
+      cameraUploadBtn.disabled = false;
+    }
+  } catch (err) {
+    cameraModalErr.textContent = "Tidak bisa hubungi server";
+    cameraUploadBtn.disabled = false;
+  }
+});
+
+async function resetStoredData() {
+  const activeOrders = getActiveOrders();
+
+  if (activeOrders.length > 0) {
+    const idsText = activeOrders.map(o => o.entity_id).join(", ");
+    const confirmed = confirm(
+      `Kamu masih pegang order aktif: ${idsText}\n\nReset akan mencoba melepas lock order-order ini di server dulu, baru menghapus data di HP ini.\n\nLanjutkan?`
+    );
+    if (!confirmed) return;
+
+    for (const o of activeOrders) {
+      try {
+        await callRelease(o.entity_id);
+      } catch (err) {
+        // lanjut tetap coba release order berikutnya walau satu gagal
+      }
+    }
+  } else {
+    const confirmed = confirm("Reset data tersimpan (nama, PIN, tahap) di HP ini?");
+    if (!confirmed) return;
+  }
+
+  const SESSION_KEYS_TO_RESET = [
+    "ltos_active_orders",
+    "ltos_staff_id",
+    "ltos_staff_name",
+    "ltos_stage",
+    "ltos_token",
+  ];
+  SESSION_KEYS_TO_RESET.forEach(k => localStorage.removeItem(k));
+
+  location.reload();
+}
+
+resetDataBtn.addEventListener("click", resetStoredData);
+
+renderActiveOrders();
+validateForm();
+</script>
+
+</body>
+</html>
