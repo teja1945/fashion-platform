@@ -30,6 +30,22 @@ async function createProductionJob({ tenantId, orderId, pipelineSnapshot, payloa
         }
       }
 
+      // Lock row orders dulu + cek apakah sudah punya production_job.
+      // FOR UPDATE di sini penting: kalau 2 request bersamaan coba confirm
+      // order yang sama, yang kedua akan nunggu lock lalu lihat
+      // production_job_id sudah keisi -> return job yang sudah ada,
+      // BUKAN bikin production_jobs baru yang dobel.
+      const orderLock = await c.query(
+        `SELECT production_job_id FROM orders WHERE id = $1 FOR UPDATE`,
+        [orderId]
+      );
+      if (orderLock.rowCount === 0) {
+        throw new Error(`order ${orderId} tidak ditemukan`);
+      }
+      if (orderLock.rows[0].production_job_id) {
+        return { alreadyExists: true, productionJobId: orderLock.rows[0].production_job_id };
+      }
+
       if (!Array.isArray(pipelineSnapshot) || pipelineSnapshot.length === 0) {
         throw new Error("pipeline_snapshot kosong — tenant belum punya tenant_pipeline_stages");
       }
@@ -56,6 +72,15 @@ async function createProductionJob({ tenantId, orderId, pipelineSnapshot, payloa
       await c.query(
         `UPDATE production_jobs SET created_from_event_id = $1 WHERE id = $2`,
         [eventId, productionJobId]
+      );
+
+      // FIX BUG KRITIS: sebelumnya kolom ini TIDAK PERNAH diupdate, jadi
+      // ingestion.js (resolveProductionJobId, query ke orders.production_job_id)
+      // selalu gagal nemuin job untuk SEMUA event setelah confirmation --
+      // pipeline putus total di step kedua. Ini yang menyambungkannya.
+      await c.query(
+        `UPDATE orders SET production_job_id = $1, status = 'in_production', updated_at = now() WHERE id = $2`,
+        [productionJobId, orderId]
       );
 
       if (requestId) {
