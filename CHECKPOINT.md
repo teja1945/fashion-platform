@@ -1144,3 +1144,29 @@ Next steps (sisa, belum berubah)
 [ ] Desain BUNDLE_ALLOCATION (child bundle)
 [ ] Function/procedure spec-lock
 [ ] Desain validasi 2 pihak staff jahit vs QC
+
+47. Ide Awal — Tenant Theme Settings + Pattern Library/Export (8 Agustus 2026, BELUM DIRISET MATANG)
+Status: IDE AWAL, bukan keputusan final. Dicatat biar tidak lupa, belum ada desain skema/implementasi.
+
+Ide A — Pengaturan tampilan (tema) per tenant
+- Tenant bisa custom tampilan aplikasi mereka sendiri: warna (primary/accent color), ukuran font (kecil/sedang/besar), logo, mungkin font family (preset, bukan upload bebas)
+- Cara simpan: kemungkinan 1 kolom JSON di tabel tenants atau tabel terpisah tenant_theme_settings, contoh: {"primary_color": "#2563eb", "font_size": "medium", "logo_url": "..."}
+- Cara pakai: frontend fetch settings ini saat load, apply ke CSS variables -- jadi ganti tema tidak perlu deploy ulang kode, cukup update data
+- Prioritas: rendah, fitur frontend lanjutan -- baru relevan begitu ada kode frontend beneran (sejalan dengan bagian 15 & 25)
+
+Ide B — Pattern library (pola baju) untuk tenant konveksi/pabrik + multi-format export
+- Kebutuhan: konveksi/pabrik butuh cara simpan & cetak pola potong (cutting pattern), bukan cuma visual configurator (bagian 25, itu untuk customer pilih model, beda dari ini)
+- 3 opsi tingkat kompleksitas (dari simpel ke rumit):
+  1. Pattern library -- tenant upload pola yang sudah mereka buat (PDF/gambar/DXF dari software lain), disimpan & dikelola per tenant, mirip sistem upload foto production_stage_photos yang sudah ada. PALING REALISTIS untuk mulai.
+  2. Pattern generator otomatis dari ukuran -- input ukuran badan, sistem generate pola dasar otomatis. Butuh engine matematika pattern-making, effort besar, rencana jangka panjang.
+  3. Integrasi ke software pattern-making eksisting (Gerber, Optitex, Seamly2D) -- kirim data ukuran, terima file pola balik.
+- Keputusan arah: tenant nanti bisa PILIH cara cetak sesuai kapasitas alat mereka masing-masing (ada yang punya mesin, ada yang tidak) -- sistem sediakan 3 opsi ekspor dari 1 sumber data pola yang sama:
+  a. PDF dengan tiling (dipecah ke halaman A4/A3, disambung manual) -- untuk print biasa, paling gampang diimplementasi
+  b. PDF/file 1 halaman besar -- untuk plotter printer (kertas roll lebar, biasa dipakai konveksi/pabrik)
+  c. DXF/PLT -- untuk mesin cutting otomatis (CNC fabric cutter), format vector CAD, paling teknis
+- Prinsip desain: sistem HANYA menyediakan file pola dalam format siap cetak/kirim ke mesin -- proses cetak fisik itu sendiri urusan hardware di sisi tenant, di luar kendali sistem
+- Urutan implementasi yang masuk akal: (1) backend inti kelar dulu -> (2) pattern library (opsi 1, upload-simpan) jalan dulu -> (3) baru tambah opsi ekspor 3 format (a/b/c) belakangan
+
+Next steps
+[ ] Riset lebih lanjut kedua ide ini (ditunda, sambil jalan proyek, sama seperti bagian 25/26)
+[ ] Jangan mulai coding ide ini sebelum backend inti (spec-lock, endpoint order, BUNDLE_ALLOCATION) selesai
