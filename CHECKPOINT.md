@@ -1132,3 +1132,15 @@ Next steps (update, hardening VPS sudah tidak ada lagi di list)
 [ ] Desain BUNDLE_ALLOCATION (child bundle) -- blocker lama sejak bagian 13/31/33
 [ ] Function/procedure spec-lock (atomik: reserve inventory + ledger + event) -- belum tersentuh
 [ ] Desain validasi 2 pihak staff jahit vs QC (quantity validation) -- masih ide, belum ada skema/event (bagian 34)
+
+46. Reboot VPS — Kernel + pm2 systemd Validated — SELESAI ✅ (8 Agustus 2026)
+- pm2 save dijalankan sebelum reboot, sudo reboot dijalankan, SSH kembali normal setelah ~1 menit.
+- uname -r -> 5.15.0-187-generic (kernel baru dari bagian 43 sekarang aktif).
+- systemctl status pm2-Rakyat -> Active: active (running) -- CONFIRMED, sebelumnya "inactive (dead)" (bagian 41) karena belum pernah reboot beneran. Sekarang server.js otomatis nyala kembali setelah reboot tanpa intervensi manual.
+
+Next steps (sisa, belum berubah)
+[ ] Verifikasi backup pertama otomatis lewat cron (~/backups/backup.log)
+[ ] Verifikasi NOTIFY order_state_changed end-to-end
+[ ] Desain BUNDLE_ALLOCATION (child bundle)
+[ ] Function/procedure spec-lock
+[ ] Desain validasi 2 pihak staff jahit vs QC
