@@ -37,3 +37,4 @@ async function tenantResolver(req, res, next) {
 }
 
 module.exports = tenantResolver;
+module.exports.extractSubdomain = extractSubdomain;

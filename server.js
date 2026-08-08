@@ -9,6 +9,7 @@ const { pool, withTenant } = require("./db");
 const { ingestEvent } = require("./ingestion");
 const { startGapMonitor /*, startBundleSplitReconciler */ } = require("./worker");
 const tenantResolver = require("./middleware/tenantResolver");
+const { extractSubdomain } = require("./middleware/tenantResolver");
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -546,7 +547,33 @@ app.post("/v1/photos", tenantResolver, requireApiKey, requireStaffSession, async
 // pass ini karena butuh cek definisi trigger langsung di database.
 // =====================================================================
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: "/v1/realtime" });
+const wss = new WebSocketServer({
+  server,
+  path: "/v1/realtime",
+  verifyClient: async (info, callback) => {
+    try {
+      const subdomain = extractSubdomain(info.req.headers.host);
+      if (!subdomain) {
+        callback(false, 403, "Invalid tenant");
+        return;
+      }
+      const { rows } = await pool.query("SELECT * FROM resolve_tenant_id($1)", [subdomain]);
+      if (rows.length === 0 || !rows[0].is_active) {
+        callback(false, 403, "Invalid tenant");
+        return;
+      }
+      info.req.tenantId = rows[0].id;
+      callback(true);
+    } catch (err) {
+      console.error("WS tenant validation error:", err.message);
+      callback(false, 500, "Internal error");
+    }
+  },
+});
+
+wss.on("connection", (ws, req) => {
+  ws.tenantId = req.tenantId;
+});
 
 async function setupRealtimeRelay() {
   if (!process.env.DATABASE_URL) {
@@ -590,8 +617,17 @@ async function setupRealtimeRelay() {
     });
     client.on("end", () => scheduleReconnect("disconnected"));
     client.on("notification", (msg) => {
+      let payloadTenantId;
+      try {
+        payloadTenantId = JSON.parse(msg.payload).tenant_id;
+      } catch (err) {
+        console.error("Gagal parse payload NOTIFY:", err.message);
+        return;
+      }
       wss.clients.forEach((ws) => {
-        if (ws.readyState === ws.OPEN) ws.send(msg.payload);
+        if (ws.readyState === ws.OPEN && ws.tenantId === payloadTenantId) {
+          ws.send(msg.payload);
+        }
       });
     });
 
