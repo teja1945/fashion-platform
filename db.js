@@ -11,6 +11,19 @@ pool.on("error", (err) => {
   console.error("Unexpected error on idle client di pool:", err.message);
 });
 
+// Pastikan tiap koneksi baru dari pool bisa manggil fungsi pgcrypto
+// (crypt(), dst) tanpa perlu schema-qualify manual di tiap query --
+// extension pgcrypto/citext ada di schema "extensions", bukan "public"
+// (lihat CHECKPOINT bagian 30). ALTER ROLE app_user SET search_path
+// saja tidak selalu cukup kalau koneksi lewat Session Pooler reuse
+// backend yang sudah login sebelum ALTER ROLE dijalankan, jadi di-set
+// eksplisit di sini biar selalu konsisten apapun kondisi pooler-nya.
+pool.on("connect", (client) => {
+  client.query("SET search_path TO public, extensions").catch((err) => {
+    console.error("Gagal set search_path di koneksi baru:", err.message);
+  });
+});
+
 async function getActiveTenantIds(client) {
   const res = await client.query(`SELECT * FROM list_active_tenant_ids()`);
   return res.rows.map((r) => r.id);

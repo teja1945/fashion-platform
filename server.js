@@ -2,20 +2,28 @@ const express = require("express");
 const http = require("http");
 const { WebSocketServer } = require("ws");
 const { Client } = require("pg");
-
-const { pool } = require("./db");
+const path = require("path");
 const crypto = require("crypto");
+
+const { pool, withTenant } = require("./db");
 const { ingestEvent } = require("./ingestion");
-const { startGapMonitor, startBundleSplitReconciler } = require("./worker");
+const { startGapMonitor /*, startBundleSplitReconciler */ } = require("./worker");
 const tenantResolver = require("./middleware/tenantResolver");
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
-const staticPath = require("path");
-app.get("/scanner.html", (_req, res) => res.sendFile(staticPath.join(__dirname, "scanner.html")));
-app.use("/assets", express.static(staticPath.join(__dirname, "assets")));
-app.get("/v1/whoami", tenantResolver, (req, res) => { res.json({ tenantId: req.tenantId, subdomain: req.tenantSubdomain }); });
 
+app.get("/scanner.html", (_req, res) => res.sendFile(path.join(__dirname, "scanner.html")));
+app.use("/assets", express.static(path.join(__dirname, "assets")));
+
+app.get("/v1/whoami", tenantResolver, (req, res) => {
+  res.json({ tenantId: req.tenantId, subdomain: req.tenantSubdomain });
+});
+
+// =====================================================================
+// API KEY (global untuk semua tenant -- known limitation, lihat
+// CHECKPOINT bagian 13: idealnya per-tenant, belum digarap di pass ini)
+// =====================================================================
 function requireApiKey(req, res, next) {
   const expected = process.env.API_KEY;
   if (!expected) {
@@ -29,9 +37,16 @@ function requireApiKey(req, res, next) {
   next();
 }
 
-app.post("/v1/events", requireApiKey, async (req, res) => {
+// =====================================================================
+// EVENTS -- tenant_id WAJIB dari subdomain (req.tenantId), bukan dari
+// body. Klien tetap boleh kirim tenant_id di body (misal buat testing),
+// tapi selalu ditimpa oleh hasil tenantResolver -- mencegah klien kirim
+// tenant_id milik tenant lain lewat body request.
+// =====================================================================
+app.post("/v1/events", tenantResolver, requireApiKey, async (req, res) => {
   try {
-    const result = await ingestEvent(req.body);
+    const body = { ...req.body, tenant_id: req.tenantId };
+    const result = await ingestEvent(body);
     res.status(result.httpStatus).json(result.body);
   } catch (err) {
     console.error("ingestion error:", err);
@@ -39,51 +54,64 @@ app.post("/v1/events", requireApiKey, async (req, res) => {
   }
 });
 
-app.get("/v1/orders", requireApiKey, async (_req, res) => {
-  const result = await pool.query(
-    `SELECT os.*, gs.status AS gap_status
-     FROM order_state os
-     LEFT JOIN gap_status gs ON gs.entity_id = os.entity_id
-     ORDER BY os.updated_at DESC`
-  );
-  res.json(result.rows);
+// =====================================================================
+// ORDERS -- production_jobs + orders (bukan order_state/gap_status lama)
+// =====================================================================
+app.get("/v1/orders", tenantResolver, requireApiKey, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const rows = await withTenant(client, req.tenantId, (c) =>
+      c.query(
+        `SELECT o.id AS order_id, o.customer_name, o.status,
+                pj.id AS production_job_id, pj.current_stage, pj.gap_status,
+                pj.updated_at
+         FROM orders o
+         LEFT JOIN production_jobs pj ON pj.id = o.production_job_id
+         ORDER BY o.updated_at DESC`
+      )
+    );
+    res.json(rows.rows);
+  } catch (err) {
+    console.error("orders list error:", err);
+    res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
+  }
 });
 
-// --- Staff PIN login ---
-// Rate limit sederhana in-memory: mencegah brute-force PIN (4 digit = 10.000 kombinasi).
-// Dibatasi per staff_id (target spesifik) DAN per IP (distribusi serangan).
-// Guard `size > 10000 -> clear()` mencegah Map ini tumbuh tanpa batas selama
-// proses jalan lama tanpa restart (pola sama seperti rateBuckets di ingestion.js).
+// =====================================================================
+// STAFF PIN LOGIN
+// Catatan: schema v2 TIDAK punya kolom "staff_id" text terpisah --
+// identifier staff adalah "id" (uuid). Klien pilih staff dari
+// /v1/staff/list (yang balikin id + full_name), baru kirim id itu ke
+// /v1/staff/login bareng PIN.
+// =====================================================================
 const rateLimitMap = new Map();
-
 function checkRateLimit(key, limit, windowMs) {
   if (rateLimitMap.size > 10000) rateLimitMap.clear();
-
   const now = Date.now();
   const entry = rateLimitMap.get(key) || { count: 0, ts: now };
-
   if (now - entry.ts > windowMs) {
     entry.count = 0;
     entry.ts = now;
   }
-
   entry.count += 1;
   rateLimitMap.set(key, entry);
-
   return entry.count <= limit;
 }
 
-// --- Staff session tokens (fix celah token/session) ---
 const sessionMap = new Map();
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 jam
 
-function createSession(staff) {
+function createSession(tenantId, staff) {
   if (sessionMap.size > 10000) sessionMap.clear();
   const token = crypto.randomBytes(32).toString("hex");
   sessionMap.set(token, {
-    staff_id: staff.staff_id,
+    tenantId,
+    staffId: staff.id,
     role: staff.role,
-    assigned_stage: staff.assigned_stage,
+    assignedStage: staff.assigned_stage,
+    fullName: staff.full_name,
     expiresAt: Date.now() + SESSION_TTL_MS,
   });
   return token;
@@ -99,24 +127,31 @@ function requireStaffSession(req, res, next) {
     sessionMap.delete(token);
     return res.status(401).json({ error: "sesi kadaluarsa, silakan login ulang" });
   }
+  // Cegah token dipakai lintas-tenant (misal token bocor / salah kirim)
+  if (session.tenantId !== req.tenantId) {
+    return res.status(403).json({ error: "sesi ini bukan untuk tenant ini" });
+  }
   session.expiresAt = Date.now() + SESSION_TTL_MS;
   req.staffSession = session;
   next();
 }
 
-app.get("/v1/staff/list", requireApiKey, async (_req, res) => {
+app.get("/v1/staff/list", tenantResolver, requireApiKey, async (req, res) => {
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
-      `SELECT staff_id, name FROM staff WHERE active = true ORDER BY name`
+    const result = await withTenant(client, req.tenantId, (c) =>
+      c.query(`SELECT id, full_name FROM staff WHERE is_active = true ORDER BY full_name`)
     );
     res.json(result.rows);
   } catch (err) {
     console.error("staff list error:", err);
     res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
   }
 });
 
-app.post("/v1/staff/login", requireApiKey, async (req, res) => {
+app.post("/v1/staff/login", tenantResolver, requireApiKey, async (req, res) => {
   const { staff_id, pin } = req.body || {};
   const ip = req.ip;
 
@@ -124,36 +159,40 @@ app.post("/v1/staff/login", requireApiKey, async (req, res) => {
     return res.status(400).json({ error: "staff_id dan pin wajib diisi" });
   }
 
-  // rate limit per staff_id (utama -- mencegah brute-force target spesifik)
-  const staffKey = `staff:${staff_id}`;
+  // rate limit di-scope per tenant juga, biar tenant A nggak bisa ngerjain rate limit tenant B
+  const staffKey = `staff:${req.tenantId}:${staff_id}`;
   if (!checkRateLimit(staffKey, 5, 30_000)) {
     return res.status(429).json({ error: "Terlalu banyak percobaan PIN, coba lagi sebentar lagi" });
   }
-
-  // rate limit per IP (sekunder -- mencegah distribusi serangan lewat banyak staff_id)
   const ipKey = `ip:${ip}`;
   if (!checkRateLimit(ipKey, 20, 30_000)) {
     return res.status(429).json({ error: "Terlalu banyak request, coba lagi sebentar lagi" });
   }
 
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
-      `SELECT staff_id, name, role, assigned_stage FROM staff
-       WHERE staff_id = $1 AND active = true AND pin_hash = crypt($2, pin_hash)`,
-      [staff_id, pin]
+    const result = await withTenant(client, req.tenantId, (c) =>
+      c.query(
+        `SELECT id, full_name, role, assigned_stage FROM staff
+         WHERE id = $1 AND is_active = true AND pin_hash = crypt($2, pin_hash)`,
+        [staff_id, pin]
+      )
     );
     if (result.rows.length === 0) {
       return res.status(401).json({ error: "PIN salah atau staff tidak aktif" });
     }
     const staff = result.rows[0];
-    const token = createSession(staff);
+    const token = createSession(req.tenantId, staff);
     res.json({ ok: true, staff, token });
   } catch (err) {
     console.error("staff login error:", err);
     res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
   }
 });
-app.post("/v1/staff/revoke", requireApiKey, requireStaffSession, async (req, res) => {
+
+app.post("/v1/staff/revoke", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
   if (req.staffSession.role !== "admin") {
     return res.status(403).json({ error: "hanya admin yang bisa revoke sesi staff" });
   }
@@ -163,16 +202,16 @@ app.post("/v1/staff/revoke", requireApiKey, requireStaffSession, async (req, res
   }
   let revokedCount = 0;
   for (const [token, session] of sessionMap.entries()) {
-    if (session.staff_id === target_staff_id) {
+    if (session.tenantId === req.tenantId && session.staffId === target_staff_id) {
       sessionMap.delete(token);
       revokedCount += 1;
     }
   }
-  console.log("REVOKE: admin " + req.staffSession.staff_id + " revoke " + revokedCount + " sesi milik staff " + target_staff_id);
+  console.log(`REVOKE: admin ${req.staffSession.staffId} (tenant ${req.tenantId}) revoke ${revokedCount} sesi milik staff ${target_staff_id}`);
   res.json({ ok: true, revoked_sessions: revokedCount });
 });
 
-app.post("/v1/staff/offboard", requireApiKey, requireStaffSession, async (req, res) => {
+app.post("/v1/staff/offboard", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
   if (req.staffSession.role !== "admin") {
     return res.status(403).json({ error: "hanya admin yang bisa offboard staff" });
   }
@@ -180,203 +219,239 @@ app.post("/v1/staff/offboard", requireApiKey, requireStaffSession, async (req, r
   if (!target_staff_id) {
     return res.status(400).json({ error: "target_staff_id wajib diisi" });
   }
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
-      "UPDATE staff SET active = false WHERE staff_id = $1 RETURNING staff_id, name",
-      [target_staff_id]
+    const result = await withTenant(client, req.tenantId, (c) =>
+      c.query(
+        `UPDATE staff SET is_active = false WHERE id = $1 RETURNING id, full_name`,
+        [target_staff_id]
+      )
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "staff tidak ditemukan" });
     }
-    let revokedCount2 = 0;
+    let revokedCount = 0;
     for (const [token, session] of sessionMap.entries()) {
-      if (session.staff_id === target_staff_id) {
+      if (session.tenantId === req.tenantId && session.staffId === target_staff_id) {
         sessionMap.delete(token);
-        revokedCount2 += 1;
+        revokedCount += 1;
       }
     }
-    console.log("OFFBOARD: admin " + req.staffSession.staff_id + " offboard staff " + result.rows[0].name + " (" + target_staff_id + "), active=false + revoke " + revokedCount2 + " sesi");
-    res.json({ ok: true, staff: result.rows[0], revoked_sessions: revokedCount2 });
+    console.log(`OFFBOARD: admin ${req.staffSession.staffId} offboard staff ${result.rows[0].full_name} (${target_staff_id}), is_active=false + revoke ${revokedCount} sesi`);
+    res.json({ ok: true, staff: result.rows[0], revoked_sessions: revokedCount });
   } catch (err) {
     console.error("offboard error:", err);
     res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
   }
 });
 
-app.post("/v1/lock/acquire", requireApiKey, requireStaffSession, async (req, res) => {
-  const { entity_id, override_admin_pin } = req.body || {};
-  const staff_id = req.staffSession.staff_id;
-  if (!entity_id) {
-    return res.status(400).json({ error: "entity_id wajib diisi" });
+// =====================================================================
+// JOB LOCKS (production_job_id, bukan entity_id/order_id)
+// =====================================================================
+app.post("/v1/lock/acquire", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
+  const { production_job_id, override_admin_pin } = req.body || {};
+  const staffId = req.staffSession.staffId;
+  if (!production_job_id) {
+    return res.status(400).json({ error: "production_job_id wajib diisi" });
   }
 
+  const client = await pool.connect();
   try {
-    const staffCheck = await pool.query(
-      `SELECT role, assigned_stage FROM staff WHERE staff_id = $1 AND active = true`,
-      [staff_id]
-    );
-    if (staffCheck.rows.length === 0) {
-      return res.status(403).json({ error: "staff tidak ditemukan atau tidak aktif" });
-    }
-
-    const { role, assigned_stage } = staffCheck.rows[0];
-
-    if (role !== "admin") {
-      const orderCheck = await pool.query(
-        `SELECT stage FROM order_state WHERE entity_id = $1`,
-        [entity_id]
+    const result = await withTenant(client, req.tenantId, async (c) => {
+      const staffCheck = await c.query(
+        `SELECT role, assigned_stage FROM staff WHERE id = $1 AND is_active = true`,
+        [staffId]
       );
-      if (orderCheck.rows.length === 0) {
-        return res.status(404).json({ error: "order tidak ditemukan" });
+      if (staffCheck.rows.length === 0) {
+        return { httpStatus: 403, body: { error: "staff tidak ditemukan atau tidak aktif" } };
       }
-      if (orderCheck.rows[0].stage !== assigned_stage) {
-        return res.status(403).json({
-          error: "order ini bukan bagian kerjamu",
-          your_stage: assigned_stage,
-          order_stage: orderCheck.rows[0].stage,
-        });
+      const { role, assigned_stage } = staffCheck.rows[0];
+
+      const jobCheck = await c.query(
+        `SELECT current_stage FROM production_jobs WHERE id = $1`,
+        [production_job_id]
+      );
+      if (jobCheck.rows.length === 0) {
+        return { httpStatus: 404, body: { error: "production job tidak ditemukan" } };
       }
 
-      const otherLock = await pool.query(
-        `SELECT entity_id FROM order_locks WHERE locked_by = $1 AND entity_id != $2`,
-        [staff_id, entity_id]
-      );
-      if (otherLock.rows.length > 0) {
-        if (!override_admin_pin) {
-          return res.status(409).json({
-            error: "kamu masih pegang order lain, selesaikan atau lepas dulu",
-            active_order: otherLock.rows[0].entity_id,
-          });
+      if (role !== "admin") {
+        if (jobCheck.rows[0].current_stage !== assigned_stage) {
+          return {
+            httpStatus: 403,
+            body: {
+              error: "job ini bukan bagian kerjamu",
+              your_stage: assigned_stage,
+              job_stage: jobCheck.rows[0].current_stage,
+            },
+          };
         }
-        const adminCheck = await pool.query(
-          `SELECT staff_id, name FROM staff WHERE role = 'admin' AND active = true AND pin_hash = crypt($1, pin_hash)`,
-          [override_admin_pin]
+
+        const otherLock = await c.query(
+          `SELECT production_job_id FROM job_locks
+           WHERE locked_by_staff_id = $1 AND production_job_id != $2 AND released_at IS NULL`,
+          [staffId, production_job_id]
         );
-        if (adminCheck.rows.length === 0) {
-          return res.status(403).json({ error: "PIN admin salah" });
+        if (otherLock.rows.length > 0) {
+          if (!override_admin_pin) {
+            return {
+              httpStatus: 409,
+              body: {
+                error: "kamu masih pegang job lain, selesaikan atau lepas dulu",
+                active_job: otherLock.rows[0].production_job_id,
+              },
+            };
+          }
+          const adminCheck = await c.query(
+            `SELECT id, full_name FROM staff WHERE role = 'admin' AND is_active = true AND pin_hash = crypt($1, pin_hash)`,
+            [override_admin_pin]
+          );
+          if (adminCheck.rows.length === 0) {
+            return { httpStatus: 403, body: { error: "PIN admin salah" } };
+          }
+          console.log(`OVERRIDE: staff ${staffId} acquire job baru ${production_job_id} sambil masih pegang ${otherLock.rows[0].production_job_id}, disetujui admin ${adminCheck.rows[0].full_name}`);
         }
-        console.log(`OVERRIDE: staff ${staff_id} acquire order baru ${entity_id} sambil masih pegang ${otherLock.rows[0].entity_id}, disetujui admin ${adminCheck.rows[0].name}`);
       }
-    }
 
-    const result = await pool.query(
-      `INSERT INTO order_locks (entity_id, locked_by)
-       VALUES ($1, $2)
-       ON CONFLICT (entity_id) DO UPDATE
-         SET locked_by = EXCLUDED.locked_by, locked_at = now()
-         WHERE order_locks.locked_by = $2
-       RETURNING *`,
-      [entity_id, staff_id]
-    );
-
-    if (result.rows.length === 0) {
-      const current = await pool.query(
-        `SELECT ol.locked_by, s.name, ol.locked_at FROM order_locks ol
-         JOIN staff s ON s.staff_id = ol.locked_by
-         WHERE ol.entity_id = $1`,
-        [entity_id]
+      // Cegah double-active-lock: cek eksplisit, jangan andalkan unique
+      // constraint (released_at NULL dianggap "distinct" oleh Postgres
+      // secara default, jadi unique constraint TIDAK cukup buat ini).
+      const activeLock = await c.query(
+        `SELECT jl.locked_by_staff_id, s.full_name, jl.locked_at
+         FROM job_locks jl JOIN staff s ON s.id = jl.locked_by_staff_id
+         WHERE jl.production_job_id = $1 AND jl.released_at IS NULL`,
+        [production_job_id]
       );
-      return res.status(409).json({
-        error: "order sedang dikerjakan orang lain",
-        locked_by: current.rows[0]?.name,
-        locked_at: current.rows[0]?.locked_at,
-      });
-    }
+      if (activeLock.rows.length > 0) {
+        return {
+          httpStatus: 409,
+          body: {
+            error: "job sedang dikerjakan orang lain",
+            locked_by: activeLock.rows[0].full_name,
+            locked_at: activeLock.rows[0].locked_at,
+          },
+        };
+      }
 
-    const stageResult = await pool.query(
-      "SELECT stage FROM order_state WHERE entity_id = $1",
-      [entity_id]
-    );
-    const currentStage = stageResult.rows[0]?.stage || null;
+      const inserted = await c.query(
+        `INSERT INTO job_locks (tenant_id, production_job_id, locked_by_staff_id)
+         VALUES ($1, $2, $3) RETURNING *`,
+        [req.tenantId, production_job_id, staffId]
+      );
 
-    await pool.query(
-      "UPDATE work_log SET ended_at = now() WHERE staff_id = $1 AND entity_id = $2 AND ended_at IS NULL",
-      [staff_id, entity_id]
-    );
+      await c.query(
+        `INSERT INTO work_log (tenant_id, production_job_id, staff_id, stage, action)
+         VALUES ($1, $2, $3, $4, 'started')`,
+        [req.tenantId, production_job_id, staffId, jobCheck.rows[0].current_stage]
+      );
 
-    await pool.query(
-      "INSERT INTO work_log (staff_id, entity_id, stage, started_at) VALUES ($1, $2, $3, now())",
-      [staff_id, entity_id, currentStage]
-    );
+      return { httpStatus: 200, body: { ok: true, lock: inserted.rows[0] } };
+    });
 
-    res.json({ ok: true, lock: result.rows[0] });
+    res.status(result.httpStatus).json(result.body);
   } catch (err) {
     console.error("lock acquire error:", err);
     res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
   }
 });
 
-app.post("/v1/lock/release", requireApiKey, requireStaffSession, async (req, res) => {
-  const { entity_id } = req.body || {};
-  const staff_id = req.staffSession.staff_id;
-  if (!entity_id) {
-    return res.status(400).json({ error: "entity_id wajib diisi" });
+app.post("/v1/lock/release", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
+  const { production_job_id } = req.body || {};
+  const staffId = req.staffSession.staffId;
+  if (!production_job_id) {
+    return res.status(400).json({ error: "production_job_id wajib diisi" });
   }
 
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
-      `DELETE FROM order_locks WHERE entity_id = $1 AND locked_by = $2 RETURNING *`,
-      [entity_id, staff_id]
-    );
+    const result = await withTenant(client, req.tenantId, async (c) => {
+      const released = await c.query(
+        `UPDATE job_locks SET released_at = now()
+         WHERE production_job_id = $1 AND locked_by_staff_id = $2 AND released_at IS NULL
+         RETURNING *`,
+        [production_job_id, staffId]
+      );
+      if (released.rows.length === 0) {
+        return { httpStatus: 409, body: { error: "lock tidak ditemukan atau bukan milik staff ini" } };
+      }
 
-    if (result.rows.length === 0) {
-      return res.status(409).json({ error: "lock tidak ditemukan atau bukan milik staff ini" });
-    }
+      const jobRow = await c.query(`SELECT current_stage FROM production_jobs WHERE id = $1`, [production_job_id]);
 
-    await pool.query(
-      "UPDATE work_log SET ended_at = now() WHERE id = (SELECT id FROM work_log WHERE staff_id = $1 AND entity_id = $2 AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1)",
-      [staff_id, entity_id]
-    );
+      await c.query(
+        `INSERT INTO work_log (tenant_id, production_job_id, staff_id, stage, action)
+         VALUES ($1, $2, $3, $4, 'completed')`,
+        [req.tenantId, production_job_id, staffId, jobRow.rows[0]?.current_stage || null]
+      );
 
-    res.json({ ok: true, released: result.rows[0] });
+      return { httpStatus: 200, body: { ok: true, released: released.rows[0] } };
+    });
+
+    res.status(result.httpStatus).json(result.body);
   } catch (err) {
     console.error("lock release error:", err);
     res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
   }
 });
-app.post("/v1/lock/force-unlock", requireApiKey, requireStaffSession, async (req, res) => {
-  const { entity_id } = req.body || {};
-  const admin_staff_id = req.staffSession.staff_id;
-  if (!entity_id) {
-    return res.status(400).json({ error: "entity_id wajib diisi" });
+
+app.post("/v1/lock/force-unlock", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
+  if (req.staffSession.role !== "admin") {
+    return res.status(403).json({ error: "hanya admin yang bisa force-unlock" });
+  }
+  const { production_job_id } = req.body || {};
+  const adminStaffId = req.staffSession.staffId;
+  if (!production_job_id) {
+    return res.status(400).json({ error: "production_job_id wajib diisi" });
   }
 
+  const client = await pool.connect();
   try {
-    const adminCheck = await pool.query(
-      `SELECT staff_id, name, role FROM staff WHERE staff_id = $1 AND active = true`,
-      [admin_staff_id]
-    );
-    if (adminCheck.rows.length === 0 || adminCheck.rows[0].role !== "admin") {
-      return res.status(403).json({ error: "staff ini bukan admin atau tidak aktif" });
-    }
+    const result = await withTenant(client, req.tenantId, async (c) => {
+      const released = await c.query(
+        `UPDATE job_locks SET released_at = now(), admin_override = true
+         WHERE production_job_id = $1 AND released_at IS NULL
+         RETURNING *`,
+        [production_job_id]
+      );
+      if (released.rows.length === 0) {
+        return { httpStatus: 404, body: { error: "tidak ada lock aktif untuk job ini" } };
+      }
 
-    const result = await pool.query(
-      `DELETE FROM order_locks WHERE entity_id = $1 RETURNING *`,
-      [entity_id]
-    );
+      await c.query(
+        `INSERT INTO work_log (tenant_id, production_job_id, staff_id, stage, action)
+         VALUES ($1, $2, $3, 'unknown', 'force_unlock')`,
+        [req.tenantId, production_job_id, adminStaffId]
+      );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "tidak ada lock aktif untuk order ini" });
-    }
+      console.log(`FORCE-UNLOCK: job ${production_job_id} dipaksa unlock oleh admin ${adminStaffId}, sebelumnya dikunci oleh ${released.rows[0].locked_by_staff_id}`);
+      return { httpStatus: 200, body: { ok: true, unlocked: released.rows[0] } };
+    });
 
-    console.log(`FORCE-UNLOCK: order ${entity_id} dipaksa unlock oleh admin ${adminCheck.rows[0].name} (${admin_staff_id}), sebelumnya dikunci oleh ${result.rows[0].locked_by}`);
-
-    res.json({ ok: true, unlocked: result.rows[0], unlocked_by_admin: adminCheck.rows[0].name });
+    res.status(result.httpStatus).json(result.body);
   } catch (err) {
     console.error("force-unlock error:", err);
     res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
   }
 });
-app.post("/v1/photos", requireApiKey, requireStaffSession, async (req, res) => {
-  const { entity_id, stage, photo_base64 } = req.body || {};
-  const staff_id = req.staffSession.staff_id;
-  const ALLOWED_STAGES = ["cutting", "sewing", "qc", "finishing"];
 
-  if (!entity_id || !stage || !photo_base64) {
-    return res.status(400).json({ error: "entity_id, stage, dan photo_base64 wajib diisi" });
-  }
-  if (!ALLOWED_STAGES.includes(stage)) {
-    return res.status(400).json({ error: "stage tidak valid untuk foto wajib", allowed: ALLOWED_STAGES });
+// =====================================================================
+// PRODUCTION STAGE PHOTOS
+// Stage divalidasi terhadap pipeline_snapshot job itu sendiri (bukan
+// hardcode array), karena pipeline sekarang configurable per tenant.
+// =====================================================================
+app.post("/v1/photos", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
+  const { production_job_id, stage, photo_base64 } = req.body || {};
+  const staffId = req.staffSession.staffId;
+
+  if (!production_job_id || !stage || !photo_base64) {
+    return res.status(400).json({ error: "production_job_id, stage, dan photo_base64 wajib diisi" });
   }
 
   let buffer;
@@ -394,31 +469,40 @@ app.post("/v1/photos", requireApiKey, requireStaffSession, async (req, res) => {
     return res.status(400).json({ error: "ukuran foto melebihi 5MB" });
   }
 
+  const client = await pool.connect();
   try {
-    const staffCheck = await pool.query(
-      `SELECT staff_id FROM staff WHERE staff_id = $1 AND active = true`,
-      [staff_id]
-    );
-    if (staffCheck.rows.length === 0) {
-      return res.status(403).json({ error: "staff tidak ditemukan atau tidak aktif" });
+    const checkResult = await withTenant(client, req.tenantId, async (c) => {
+      const staffCheck = await c.query(`SELECT id FROM staff WHERE id = $1 AND is_active = true`, [staffId]);
+      if (staffCheck.rows.length === 0) {
+        return { httpStatus: 403, body: { error: "staff tidak ditemukan atau tidak aktif" } };
+      }
+
+      const jobCheck = await c.query(
+        `SELECT current_stage, pipeline_snapshot FROM production_jobs WHERE id = $1`,
+        [production_job_id]
+      );
+      if (jobCheck.rows.length === 0) {
+        return { httpStatus: 404, body: { error: "production job tidak ditemukan" } };
+      }
+
+      const stageKeys = (jobCheck.rows[0].pipeline_snapshot || []).map((s) => s.stage_key);
+      if (!stageKeys.includes(stage)) {
+        return { httpStatus: 400, body: { error: "stage tidak dikenal di pipeline job ini", allowed: stageKeys } };
+      }
+      if (jobCheck.rows[0].current_stage !== stage) {
+        return {
+          httpStatus: 403,
+          body: { error: "stage foto tidak cocok dengan stage job saat ini", job_stage: jobCheck.rows[0].current_stage, sent_stage: stage },
+        };
+      }
+      return { httpStatus: 200 };
+    });
+
+    if (checkResult.httpStatus !== 200) {
+      return res.status(checkResult.httpStatus).json(checkResult.body);
     }
 
-    const orderCheck = await pool.query(
-      `SELECT stage FROM order_state WHERE entity_id = $1`,
-      [entity_id]
-    );
-    if (orderCheck.rows.length === 0) {
-      return res.status(404).json({ error: "order tidak ditemukan" });
-    }
-    if (orderCheck.rows[0].stage !== stage) {
-      return res.status(403).json({
-        error: "stage foto tidak cocok dengan stage order saat ini",
-        order_stage: orderCheck.rows[0].stage,
-        sent_stage: stage,
-      });
-    }
-
-    const storagePath = `${entity_id}/${stage}-${Date.now()}.jpg`;
+    const storagePath = `${production_job_id}/${stage}-${Date.now()}.jpg`;
     const SUPABASE_URL = process.env.SUPABASE_URL;
     const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
     if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) {
@@ -426,52 +510,58 @@ app.post("/v1/photos", requireApiKey, requireStaffSession, async (req, res) => {
       return res.status(503).json({ error: "server belum dikonfigurasi (Supabase Storage)" });
     }
 
-    const uploadUrl = `${SUPABASE_URL}/storage/v1/object/stage-photos/${storagePath}`;
-    const uploadRes = await fetch(uploadUrl, {
+    const uploadRes = await fetch(`${SUPABASE_URL}/storage/v1/object/stage-photos/${storagePath}`, {
       method: "POST",
-      headers: {
-        apikey: SUPABASE_SECRET_KEY,
-        "Content-Type": "image/jpeg",
-      },
+      headers: { apikey: SUPABASE_SECRET_KEY, "Content-Type": "image/jpeg" },
       body: buffer,
     });
-
     if (!uploadRes.ok) {
       const errText = await uploadRes.text();
       console.error("upload foto ke Supabase Storage gagal:", uploadRes.status, errText);
       return res.status(502).json({ error: "gagal upload foto ke storage" });
     }
 
-    const insertResult = await pool.query(
-      `INSERT INTO stage_photos (entity_id, stage, staff_id, storage_path) VALUES ($1, $2, $3, $4) RETURNING *`,
-      [entity_id, stage, staff_id, storagePath]
+    const insertResult = await withTenant(client, req.tenantId, (c) =>
+      c.query(
+        `INSERT INTO production_stage_photos (tenant_id, production_job_id, stage, storage_path, uploaded_by_staff_id)
+         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        [req.tenantId, production_job_id, stage, storagePath, staffId]
+      )
     );
 
     res.json({ ok: true, photo: insertResult.rows[0] });
   } catch (err) {
     console.error("photos error:", err);
     res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
   }
 });
 
+// =====================================================================
+// REALTIME RELAY
+// TODO: nama channel "order_state_changed" belum diverifikasi ulang --
+// perlu dicek apakah trigger NOTIFY ini masih ada / masih terpasang ke
+// production_jobs di schema v2, atau perlu di-rename. Belum disentuh di
+// pass ini karena butuh cek definisi trigger langsung di database.
+// =====================================================================
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/v1/realtime" });
 
 async function setupRealtimeRelay() {
+  if (!process.env.DATABASE_URL) {
+    console.error("DATABASE_URL kosong -- realtime relay tidak dijalankan.");
+    return;
+  }
+
   let currentClient = null;
   let reconnecting = false;
 
   const connect = async () => {
-    const client = new Client({
-      connectionString: process.env.DATABASE_URL || "postgres://localhost:5432/ltos",
-    });
-
+    const client = new Client({ connectionString: process.env.DATABASE_URL });
     currentClient = client;
 
-    client.on("error", (err) => {
-      console.error("listenClient error (pre-ready):", err.message);
-    });
-
+    client.on("error", (err) => console.error("listenClient error (pre-ready):", err.message));
     await client.connect();
     await client.query("LISTEN order_state_changed");
 
@@ -498,13 +588,10 @@ async function setupRealtimeRelay() {
       console.error("listenClient error:", err.message);
       scheduleReconnect("error");
     });
-    client.on("end", () => {
-      scheduleReconnect("disconnected");
-    });
+    client.on("end", () => scheduleReconnect("disconnected"));
     client.on("notification", (msg) => {
-      const payload = msg.payload;
       wss.clients.forEach((ws) => {
-        if (ws.readyState === ws.OPEN) ws.send(payload);
+        if (ws.readyState === ws.OPEN) ws.send(msg.payload);
       });
     });
 
@@ -524,8 +611,10 @@ async function setupRealtimeRelay() {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
-  console.log(`LTOS ingestion gateway running on port ${PORT}`);
+  console.log(`Fashion platform gateway running on port ${PORT}`);
   await setupRealtimeRelay();
   startGapMonitor();
-  startBundleSplitReconciler();
+  // startBundleSplitReconciler() sengaja belum dipanggil -- masih desain
+  // lama (CHECKPOINT bagian 31), akan crash/salah baca tabel kalau
+  // dijalankan sekarang. Aktifkan lagi setelah desain child bundle fix.
 });
