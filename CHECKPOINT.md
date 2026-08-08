@@ -69,7 +69,7 @@ Bug-bug kritis yang sudah ditemukan & diperbaiki (detail lengkap di archive, jan
 ===================================================================
 [ ] Verifikasi backup pertama otomatis lewat cron (cek ~/backups/backup.log dan file baru)
 [x] Verifikasi channel NOTIFY order_state_changed end-to-end — SELESAI 8 Agustus 2026, detail di bagian 54
-[ ] Fix bug kebocoran tenant di WebSocket broadcast (/v1/realtime tidak filter per-tenant) — PRIORITAS TINGGI, detail di bagian 54
+[x] Fix bug kebocoran tenant di WebSocket broadcast — SELESAI 8 Agustus 2026, detail di bagian 54
 [ ] Desain child bundle (BUNDLE_ALLOCATION) — masih blocker lama, ingestion.js return HTTP 501 untuk event ini
 [ ] Function/procedure spec-lock (atomik: reserve inventory + ledger + event) — belum tersentuh sama sekali
 [ ] Redesain resolveStageTransition/QC handling dengan validasi quantity 2 pihak (staff jahit submit pending → QC konfirmasi jumlah aktual → discrepancy dicatat dengan jejak) — lihat bagian 7 poin C
@@ -175,4 +175,14 @@ BUG DITEMUKAN -- kebocoran data antar-tenant di WebSocket broadcast (PRIORITAS T
 
 Next steps
 [x] Verifikasi NOTIFY order_state_changed end-to-end -- SELESAI
-[ ] Fix bug kebocoran tenant di WebSocket broadcast (lihat bagian 5, prioritas tinggi)
+[x] Fix bug kebocoran tenant di WebSocket broadcast — SELESAI, lihat bagian 54 untuk detail solusi (verifyClient + filter tenant_id)
+
+Update bagian 54 (8 Agustus 2026) — Fix bug kebocoran tenant SELESAI
+- Solusi final: pakai opsi verifyClient di WebSocketServer (bukan validasi di dalam wss.on("connection")) -- verifikasi tenant jalan di level HTTP upgrade, SEBELUM handshake WebSocket selesai
+- Kenapa verifyClient lebih baik dari validasi di connection handler: client invalid ditolak sebelum sempat dapat status "open" sama sekali (HTTP 403 di level handshake), bukan connect dulu baru di-close -- lebih bersih, tidak ada window waktu client sempat "connected" walau cuma sepersekian detik
+- extractSubdomain() di-export dari middleware/tenantResolver.js supaya dipakai ulang, konsisten dengan tenant resolver yang sudah ada untuk REST endpoint
+- ws.tenantId di-set dari hasil resolve di verifyClient (nempel ke info.req.tenantId, diambil lagi pas wss.on("connection"))
+- Broadcast di client.on("notification") diubah: parse payload dulu buat ambil tenant_id, baru kirim cuma ke ws yang ws.tenantId match
+- CATATAN TEKNIS -- pelajaran dari proses coding: hindari python3 -c "..." (double-quote) untuk script yang mengandung tanda ! -- bash melakukan history expansion dan bisa merusak isi string sebelum sampai ke Python. Pakai heredoc python3 << 'PYEOF' ... PYEOF (single-quote delimiter) supaya bash tidak melakukan expansion apapun.
+- Testing final: tenant invalid ditolak di handshake (403, tidak ada data terkirim), tenant valid (demo) tetap connect normal dan menerima notifikasi dengan payload benar -- keduanya diverifikasi lewat simulasi header Host manual (ws://localhost:3000 dengan header host: demo.fashion-platform.local)
+- Commit: e07dad8
