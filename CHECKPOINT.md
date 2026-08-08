@@ -68,7 +68,8 @@ Bug-bug kritis yang sudah ditemukan & diperbaiki (detail lengkap di archive, jan
 5. NEXT STEPS AKTIF (backend inti — prioritas utama)
 ===================================================================
 [ ] Verifikasi backup pertama otomatis lewat cron (cek ~/backups/backup.log dan file baru)
-[ ] Verifikasi channel NOTIFY order_state_changed end-to-end (trigger perubahan production_jobs, cek WebSocket relay neruskan) — belum ditest sejak server.js baru di-deploy
+[x] Verifikasi channel NOTIFY order_state_changed end-to-end — SELESAI 8 Agustus 2026, detail di bagian 54
+[ ] Fix bug kebocoran tenant di WebSocket broadcast (/v1/realtime tidak filter per-tenant) — PRIORITAS TINGGI, detail di bagian 54
 [ ] Desain child bundle (BUNDLE_ALLOCATION) — masih blocker lama, ingestion.js return HTTP 501 untuk event ini
 [ ] Function/procedure spec-lock (atomik: reserve inventory + ledger + event) — belum tersentuh sama sekali
 [ ] Redesain resolveStageTransition/QC handling dengan validasi quantity 2 pihak (staff jahit submit pending → QC konfirmasi jumlah aktual → discrepancy dicatat dengan jejak) — lihat bagian 7 poin C
@@ -143,3 +144,35 @@ KOLABORASI & CACHE — WAJIB DIBACA TIAP SESI BARU
 - Cara edit/append file di VPS: pakai `cat >> nama_file << 'EOF' ... EOF` untuk NAMBAH konten (bukan nano). `>>` = append, `>` = overwrite total (bahaya kalau salah pakai untuk nambah). Verifikasi dengan `tail -N nama_file` setelah append, sebelum commit & push.
 - Cross-check ke ChatGPT: rekomendasikan proaktif kalau ada keputusan desain berisiko tinggi (arsitektur data, security, race condition, konsistensi) — jangan nunggu Teja minta duluan. Evaluasi jujur hasilnya, jangan ditelan mentah-mentah.
 - Workflow Teja: satu-langkah-satu-waktu. Claude kasih 1 command/langkah, tunggu hasil dari Teja, baru lanjut ke langkah berikutnya. Jangan kasih banyak command sekaligus.
+
+===================================================================
+54. Verifikasi NOTIFY order_state_changed End-to-End + Bug Kebocoran Tenant di WebSocket (8 Agustus 2026, SELESAI DIVERIFIKASI)
+===================================================================
+Status: Next step lama (sejak bagian 38/39) yang akhirnya tuntas dites hari ini.
+
+Temuan awal — trigger tidak pernah ada
+- Cek ke database (schema public): TIDAK ADA trigger apapun, dan tidak ada function manapun yang manggil NOTIFY/pg_notify terkait proyek ini
+- Asumsi lama di bagian 39 ("trigger sudah ada, dikonfirmasi dari listener startup tanpa error") KELIRU — LISTEN di Postgres selalu sukses walau tidak pernah ada yang NOTIFY, jadi startup tanpa error bukan bukti trigger ada
+- server.js sendiri juga tidak ada kode NOTIFY manual di app-level — cuma ada 1 komentar "perlu dicek" di baris 544, tidak ada implementasi
+
+Solusi — DB trigger (bukan app-level)
+- Dipilih trigger database (bukan manggil NOTIFY dari app code) supaya tidak bisa lupa/kelewat dari jalur update manapun (termasuk fix data manual via SQL Editor)
+- Trigger AFTER UPDATE ON production_jobs, kondisi WHEN (OLD.current_stage IS DISTINCT FROM NEW.current_stage) -- cuma fire kalau stage beneran berubah
+- Payload JSON: production_job_id, tenant_id, order_id, old_stage, new_stage, current_version, updated_at
+- Security advisor Supabase: sempat warning search_path belum eksplisit di function -- sudah diperbaiki, sekarang 0 warning
+
+Verifikasi end-to-end (SUKSES)
+- Level database: psql LISTEN manual + UPDATE current_stage dari sesi lain -- notifikasi diterima dengan payload lengkap dan benar
+- Level aplikasi: script node -e pakai package ws, connect ke ws://localhost:3000/v1/realtime, UPDATE stage dari sesi lain -- notifikasi DITERIMA oleh WebSocket client dengan payload lengkap
+- Rantai penuh terbukti jalan: DB trigger -> pg_notify -> LISTEN client di server.js (dedicated pg Client, bukan pool -- sudah benar) -> broadcast wss.clients -> WebSocket client nerima
+- pm2 sempat di-flush + restart di tengah investigasi untuk dapat log bersih -- warning-warning lama (MaxListenersExceededWarning, DeprecationWarning client.query) tidak muncul lagi setelah restart bersih, dikonfirmasi bukan bug aktif, cuma numpukan log lama
+
+BUG DITEMUKAN -- kebocoran data antar-tenant di WebSocket broadcast (PRIORITAS TINGGI, BELUM DIPERBAIKI)
+- Kode broadcast di server.js (wss.clients.forEach(...)) mengirim SEMUA notifikasi ke SEMUA client yang connect ke /v1/realtime, TIDAK ADA filter per-tenant
+- Dampak: kalau WebSocket ini dipakai di frontend sungguhan, client tenant A akan menerima notifikasi perubahan stage milik tenant B, C, dst -- pelanggaran isolasi data multi-tenant
+- Ini murni ditemukan dari testing kali ini, belum ada perbaikan apapun -- lihat Next Steps Aktif (bagian 5) untuk rencana fix
+- Kemungkinan solusi (belum diputuskan): filter di level relay server.js (parse payload, cek tenant_id, cuma kirim ke ws connection yang terasosiasi tenant itu -- perlu cara mengasosiasikan koneksi ws dengan tenant, misal dari query param/token saat handshake)
+
+Next steps
+[x] Verifikasi NOTIFY order_state_changed end-to-end -- SELESAI
+[ ] Fix bug kebocoran tenant di WebSocket broadcast (lihat bagian 5, prioritas tinggi)
