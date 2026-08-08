@@ -1031,3 +1031,59 @@ Next steps
 [ ] Cleanup ssh-rsa lama
 [ ] Reboot VPS (sekalian load kernel baru + validasi pm2 systemd penuh -- lihat bagian 41)
 [ ] Item lama yang belum tersentuh: verifikasi NOTIFY order_state_changed end-to-end, desain BUNDLE_ALLOCATION, spec-lock function
+
+44. Backup Manual Rutin (pg_dump) — SELESAI ✅ (8 Agustus 2026)
+Status: Item ke-3 dari 4 hardening di bagian 11 sekarang beres.
+
+Kendala awal — password auth gagal berkali-kali
+- BACKUP_DATABASE_URL awalnya pakai role app_user via Session Pooler (sama seperti DATABASE_URL utama) -- diganti ke role postgres (superuser) karena app_user no-bypass-RLS (bagian 24), backup butuh akses baca semua data tanpa dibatasi RLS.
+- Password auth gagal berkali-kali meski sudah reset password beberapa kali. Root cause ternyata BUKAN password salah, tapi cara COPY yang salah dari dashboard Supabase: kotak "Connection parameters" (Copy all) cuma nyalin host/port/database/user TERPISAH tanpa password dan bukan format URL -- yang benar adalah tombol copy yang nempel LANGSUNG di kotak connection string utuh (postgresql://postgres.<ref>:<password>@...), yang otomatis include password ter-update dan sudah URL-encode kalau ada karakter spesial.
+- Pelajaran: dashboard Supabase punya BEBERAPA tombol copy berbeda di halaman "Connect to project" -- harus pastikan pakai yang nyalin connection string LENGKAP (satu baris utuh postgresql://...), bukan connection parameters yang terpisah-pisah.
+- Sempat juga salah pilih "Direct connection" alih-alih "Session pooler" -- Direct connection tidak akan pernah jalan dari VPS Biznet Gio ini karena tidak punya IPv6 (sudah dicatat sejak bagian 24), harus selalu Session pooler.
+
+Kendala kedua — versi pg_dump tidak cocok
+- pg_dump bawaan Ubuntu 22.04 (apt biasa) cuma versi 14.23, sementara server Postgres Supabase versi 17.6 -- pg_dump menolak jalan kalau versi client < versi server (pg_dump: error: aborting because of server version mismatch).
+- Fix: install postgresql-client-17 dari repo resmi PGDG (apt.postgresql.org), BUKAN dari repo Ubuntu biasa:
+  sudo apt install -y postgresql-common
+  sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+  sudo apt install -y postgresql-client-17
+- Setelah itu pg_dump --version -> 17.10, cocok dengan server (>= 17.6), dump berhasil.
+
+Script backup -- ~/backup-db.sh
+#!/bin/bash
+set -e
+
+BACKUP_DIR="$HOME/backups"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+FILENAME="fashion_platform_${TIMESTAMP}.sql.gz"
+
+cd "$HOME/fashion-platform"
+export $(grep BACKUP_DATABASE_URL .env | xargs)
+
+pg_dump "$BACKUP_DATABASE_URL" | gzip > "$BACKUP_DIR/$FILENAME"
+
+# Hapus backup yang lebih tua dari 14 hari
+find "$BACKUP_DIR" -name "fashion_platform_*.sql.gz" -mtime +14 -delete
+
+echo "Backup selesai: $FILENAME"
+
+- Disimpan di ~/backups/ (folder terpisah dari repo, TIDAK di-commit ke git -- backup database jangan pernah masuk repo publik)
+- Retensi: auto-hapus backup lebih dari 14 hari lewat find -mtime +14 -delete, supaya tidak menuh-menuhin disk VPS tanpa batas
+- Test manual: chmod +x ~/backup-db.sh, dijalankan langsung -- sukses, hasil ~51KB (fashion_platform_20260808_170023.sql.gz), wajar untuk data test yang masih sedikit
+
+Cron job -- terjadwal harian
+- crontab -e -> tambah baris: 0 3 * * * /home/Rakyat/backup-db.sh >> /home/Rakyat/backups/backup.log 2>&1
+- Jalan tiap hari jam 3 pagi, output (termasuk error kalau ada) di-log ke ~/backups/backup.log
+- Diverifikasi: crontab -l menampilkan baris tersimpan dengan benar, systemctl status cron -> active (running)
+
+.env -- variabel baru
+- BACKUP_DATABASE_URL ditambahkan terpisah dari DATABASE_URL utama (yang tetap pakai app_user untuk operasional backend sehari-hari, bagian 24). BACKUP_DATABASE_URL khusus pakai role postgres, HANYA dipakai script backup, tidak dipakai kode aplikasi manapun.
+
+Sisa hardening dari bagian 11 (1 item terakhir)
+[ ] Cleanup key ssh-rsa lama di authorized_keys (2 key masih ada: ssh-rsa lama + ssh-ed25519 fashion-platform)
+
+Next steps
+[ ] Cleanup ssh-rsa lama -- item hardening terakhir
+[ ] Reboot VPS (load kernel baru + validasi pm2 systemd penuh -- lihat bagian 41)
+[ ] Verifikasi backup pertama yang jalan otomatis lewat cron besok pagi jam 3 (cek ~/backups/backup.log dan file baru muncul)
+[ ] Item lama yang belum tersentuh: verifikasi NOTIFY order_state_changed end-to-end, desain BUNDLE_ALLOCATION, spec-lock function
