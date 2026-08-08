@@ -1239,3 +1239,43 @@ Next steps
 [ ] Desain event baru untuk event-sourcing (kemungkinan: wage.earned, reject.discussion_opened, reject.resolved, dst -- lihat pola EVENT_CONTRACTS.md bagian 23)
 [ ] Riset ditunda sampai backend inti selesai, dan sejalan dengan redesain QC handling (bagian 34)
 [ ] Jangan mulai coding fitur ini sebelum backend inti (spec-lock, endpoint order, BUNDLE_ALLOCATION) selesai
+
+50. Ide Awal — Fitur Level Platform: Analytics Owner, Sistem Sewa Modular, Laporan Keuangan Tenant (8 Agustus 2026, BELUM DIRISET MATANG)
+Status: IDE AWAL dari Teja, hasil diskusi lintas semua tipe tenant. Bukan keputusan final, belum ada desain skema/implementasi.
+
+A. Dashboard analitik untuk owner (per tenant)
+- Laporan pemasukan bulanan + alasan kenapa naik/turun (bukan cuma angka, tapi insight performa)
+- Data penjualan per lokasi/kota customer (misal Jakarta paling laris) -- untuk bantu owner arahkan fokus iklan ke daerah yang kurang
+- Riset otomatis tren produk (misal "thobe lagi kurang laku, kemeja lagi bagus") -- supaya owner tidak numpuk stok yang kurang laku, kedeteksi otomatis dari sistem
+- Prediksi tren yang lagi ramai/naik (misal "gamis perempuan lagi naik") -- jadi bahan pertimbangan owner untuk bikin produk baru/pembaruan
+- Data performa per-staff yang detail (bukan cuma ringkasan angka) -- owner bisa klik ke tiap staff, lihat riwayat kerja lengkap
+- Ruang desain khusus untuk owner -- bukan cuma lihat data/pakai aplikasi, tapi ada semacam kanvas/ruang gambar built-in supaya owner bisa kembangkan ide desain produk baru langsung di aplikasi
+
+B. Ruang komplain/komunikasi customer
+- Perlu ada ruang khusus untuk customer komplain/nanya soal order mereka -- beda dari sesi diskusi reject internal staff (bagian 49, itu untuk internal)
+
+C. Sistem sewa/langganan fitur -- model prabayar, modular per fitur
+- Tenant PILIH fitur yang mau dipakai (bukan 1 paket tetap, tapi modular/kombinasi custom -- misal pilih fitur A+C+E, harga beda dari pilih A+B) sesuai kebutuhan & kapasitas masing-masing tenant
+- WAJIB BAYAR DULU sebelum bisa pakai fitur -- mirip beli kuota internet, sistem otomatis TIDAK BISA diakses kalau belum ada pembayaran, tidak ada cara akses sembarangan tanpa bayar
+- Ada masa aktif/expired (misal sewa 1 bulan) -- otomatis MATI setelah masa aktif habis, KECUALI tenant bayar lagi untuk perpanjang
+- AKTIVASI OTOMATIS begitu tenant bayar -- TIDAK PERLU nunggu konfirmasi manual dari Teja, sistem langsung jalan sendiri
+- NONAKTIF OTOMATIS begitu tidak bayar/expired -- juga otomatis, tanpa intervensi manual
+
+D. Laporan keuangan untuk tenant sendiri (bukan cuma untuk Teja)
+- Tiap tenant perlu fitur laporan keuangan MEREKA SENDIRI (order history, pemasukan, dll) -- untuk kebutuhan pajak/akunting tenant masing-masing, terpisah dari laporan/backup yang dipegang Teja sebagai pemilik platform
+
+E. Batasan privasi -- PENTING, prinsip keamanan yang wajib dijaga
+- Semua fitur di atas (terutama data export/laporan tenant) HANYA boleh mencakup DATA MEREKA SENDIRI di dalam aplikasi
+- TIDAK BOLEH ADA AKSES ke infrastruktur/kredensial Teja sebagai pemilik platform: API key, kredensial VPS, kredensial Supabase, password sistem, dll -- ini murni milik Teja, tenant tidak pernah dikasih akses ke situ dalam bentuk apapun
+- Prinsip ini WAJIB dipegang di semua desain fitur self-service tenant ke depannya
+
+Hubungan dengan bagian lain
+- Poin C (sistem sewa modular) berhubungan langsung dengan tenant_billing yang sudah ada di skema (bagian 2, 5) dan proses onboarding self-service (belum ada bagian khusus, masih didiskusikan)
+- Poin D (laporan keuangan tenant) terpisah dari sistem backup Teja (bagian 44) -- laporan keuangan tenant itu FITUR APLIKASI untuk tenant, bukan backup infrastruktur
+
+Next steps
+[ ] Riset lebih lanjut semua poin di atas, ditunda sampai backend inti selesai
+[ ] Desain skema database untuk sistem sewa modular (tabel fitur yang bisa disewa, tabel langganan aktif per tenant, tracking masa aktif/expired)
+[ ] Desain skema untuk analytics (mungkin perlu aggregasi data terpisah, bukan query langsung ke tabel transaksional supaya tidak berat)
+[ ] Prioritas diskusi berikutnya: proses onboarding self-service tenant baru (pendaftaran mandiri, pilih fitur, bayar, auto-aktivasi) -- ini fondasi untuk poin C & D di atas
+[ ] Jangan mulai coding fitur-fitur ini sebelum backend inti (spec-lock, endpoint order, BUNDLE_ALLOCATION) selesai
