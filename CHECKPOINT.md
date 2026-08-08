@@ -67,7 +67,7 @@ Bug-bug kritis yang sudah ditemukan & diperbaiki (detail lengkap di archive, jan
 ===================================================================
 5. NEXT STEPS AKTIF (backend inti — prioritas utama)
 ===================================================================
-[ ] Verifikasi backup pertama otomatis lewat cron (cek ~/backups/backup.log dan file baru)
+[x] Verifikasi backup pertama otomatis lewat cron — SELESAI 9 Agustus 2026, file 20260809_030001.sql.gz tervalidasi (timestamp sesuai jadwal, gzip tidak corrupt)
 [x] Verifikasi channel NOTIFY order_state_changed end-to-end — SELESAI 8 Agustus 2026, detail di bagian 54
 [x] Fix bug kebocoran tenant di WebSocket broadcast — SELESAI 8 Agustus 2026, detail di bagian 54
 [ ] Desain child bundle (BUNDLE_ALLOCATION) — masih blocker lama, ingestion.js return HTTP 501 untuk event ini
