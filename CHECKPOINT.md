@@ -71,7 +71,7 @@ Bug-bug kritis yang sudah ditemukan & diperbaiki (detail lengkap di archive, jan
 [x] Verifikasi channel NOTIFY order_state_changed end-to-end — SELESAI 8 Agustus 2026, detail di bagian 54
 [x] Fix bug kebocoran tenant di WebSocket broadcast — SELESAI 8 Agustus 2026, detail di bagian 54
 [ ] Desain child bundle (BUNDLE_ALLOCATION) — masih blocker lama, ingestion.js return HTTP 501 untuk event ini
-[ ] Function/procedure spec-lock (atomik: reserve inventory + ledger + event) — belum tersentuh sama sekali
+[x] Function/procedure spec-lock (atomik: reserve inventory + ledger) -- SELESAI 9 Agustus 2026, detail bagian 56
 [ ] Redesain resolveStageTransition/QC handling dengan validasi quantity 2 pihak (staff jahit submit pending → QC konfirmasi jumlah aktual → discrepancy dicatat dengan jejak) — lihat bagian 7 poin C
 [x] Audit field bigint lain yang dibaca lewat pg -- SELESAI 9 Agustus 2026, tidak ada bug tambahan ditemukan (detail bagian 55)
 [ ] HTTPS/SSL sebelum backend expose ke publik/domain live
@@ -206,3 +206,28 @@ Hasil audit:
 - Tidak ditemukan bug string-concat tambahan di luar yang sudah diperbaiki di bagian 36.
 
 Kesimpulan: Audit tuntas, tidak ada fix tambahan diperlukan.
+
+===================================================================
+56. Function Spec-Lock reserve_fabric_inventory (9 Agustus 2026, SELESAI)
+===================================================================
+Status: Next step lama (bagian 5), atomik reserve inventory + ledger. Belum termasuk production_events (event-sourcing pipeline terpisah, tidak disentuh di sini).
+
+Struktur tabel terkait:
+- fabric_inventory: id, tenant_id, material_name, stock_state, quantity (numeric 12,3), unit, updated_at. RLS tenant_isolation aktif.
+- inventory_ledger: id, tenant_id, fabric_inventory_id (FK), order_id (FK, nullable), movement_type, quantity, created_by_staff_id (FK staff), created_at. RLS tenant_isolation aktif.
+
+Function: reserve_fabric_inventory(p_tenant_id, p_fabric_inventory_id, p_order_id, p_quantity, p_staff_id, p_movement_type DEFAULT 'RESERVED')
+- Row lock via SELECT ... FOR UPDATE pada fabric_inventory -- cegah race condition kalau 2 proses reserve stok bersamaan
+- Validasi: quantity > 0, baris ditemukan (tenant match), stok cukup -- gagal salah satu = RAISE EXCEPTION, seluruh transaksi rollback (tidak ada perubahan parsial)
+- Kalau lolos validasi: UPDATE fabric_inventory (kurangi quantity) + INSERT inventory_ledger, satu transaksi atomik
+- SECURITY INVOKER (bukan DEFINER) -- jalan pakai izin pemanggil, RLS tenant tetap berlaku normal, bukan bypass
+- search_path = public diset eksplisit dari awal (pelajaran dari bagian 54, hindari warning Supabase advisor)
+- Return: ledger_id + remaining_quantity
+- GRANT EXECUTE diberikan ke app_user
+
+Testing (via Supabase MCP untuk deploy function, psql VPS untuk test):
+- Reserve normal (30 dari 100 stok testing "Katun Combed 30s"): SUKSES, quantity jadi 70, ledger_id ter-generate
+- Reserve melebihi stok (999 dari 70): DITOLAK bersih dengan pesan jelas ("stok tidak cukup: tersedia 70.000, diminta 999"), quantity tetap 70 (diverifikasi ulang) -- atomik terbukti, tidak ada perubahan parsial
+- Security advisor Supabase: 0 warning setelah deploy
+
+Next: function ini belum dipanggil dari endpoint server.js manapun -- masih murni di level database. Integrasi ke endpoint (misal saat order masuk produksi, butuh bahan) belum dikerjakan, jadi next step terpisah kalau mau dipakai di alur bisnis nyata.
