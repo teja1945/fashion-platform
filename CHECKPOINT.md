@@ -1279,3 +1279,22 @@ Next steps
 [ ] Desain skema untuk analytics (mungkin perlu aggregasi data terpisah, bukan query langsung ke tabel transaksional supaya tidak berat)
 [ ] Prioritas diskusi berikutnya: proses onboarding self-service tenant baru (pendaftaran mandiri, pilih fitur, bayar, auto-aktivasi) -- ini fondasi untuk poin C & D di atas
 [ ] Jangan mulai coding fitur-fitur ini sebelum backend inti (spec-lock, endpoint order, BUNDLE_ALLOCATION) selesai
+
+51. Ide Awal — Login Email+Password dengan Approval Owner + Kustomisasi Dashboard Personal Staff/Owner (8 Agustus 2026, BELUM DIRISET MATANG)
+Status: IDE AWAL dari Teja, bukan keputusan final. Belum ada desain skema/implementasi.
+
+A. Login pakai email + password, ganti sendiri TAPI perlu approval owner
+- Staff dan owner bisa login pakai email + password (tambahan/alternatif dari PIN yang sudah ada sekarang, bagian 13/41)
+- Staff bisa AJUKAN ganti email/password sendiri, TAPI perlu PERSETUJUAN OWNER dulu baru berlaku -- bukan langsung otomatis, supaya owner tetap punya kendali/data dan tidak sembarangan staff ganti-ganti terus
+- Verifikasi TIDAK lewat email (dianggap ribet, butuh integrasi kirim email) -- diganti lewat APPROVAL OWNER saja, lebih simpel dan owner sudah pasti tahu/kontrol siapa yang berubah datanya
+- Owner bisa MATIKAN/NONAKTIFKAN akun staff kapan saja (misal staff resign) -- staff itu langsung tidak bisa login lagi. Ini konsisten dengan fitur offboard yang SUDAH ADA di sistem (POST /v1/staff/offboard, bagian 41) -- tinggal disambungkan ke mekanisme email+password juga
+
+B. Kustomisasi dashboard personal per staff/owner (individual, bukan per tenant)
+- Tiap staff/owner bisa custom tampilan dashboard mereka SENDIRI saat login -- misal tampilan kalender, tema warna, dll
+- Bisa pilih dari GALERI pilihan yang disediakan (bukan custom bebas dari nol)
+- Beda level dari tema per-tenant (bagian 47) -- itu tema keseluruhan aplikasi tenant, ini personal per individual staff/owner (semacam preferensi tampilan masing-masing orang)
+
+Next steps
+[ ] Riset lebih lanjut, ditunda sampai backend inti selesai
+[ ] Desain skema: tabel staff perlu kolom email + password_hash, tabel/mekanisme approval request (staff ajukan perubahan -> owner approve/reject), tabel terpisah untuk preferensi dashboard personal
+[ ] Jangan mulai coding fitur ini sebelum backend inti (spec-lock, endpoint order, BUNDLE_ALLOCATION) selesai
