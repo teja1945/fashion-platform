@@ -1189,3 +1189,13 @@ Next steps
 [ ] BELUM ada keputusan teknis apapun -- riset penuh dari nol nanti, termasuk opsi 3D dan alternatif lain, tanpa terikat diskusi/asumsi sebelumnya
 [ ] Riset ditunda sampai ada akses tool development yang lebih memadai (Claude Code, dll -- lihat bagian 10/16/28)
 [ ] Jangan mulai coding fitur ini sebelum backend inti selesai
+
+Update bagian 34 (8 Agustus 2026) — Tambahan: Notifikasi WA ke QC saat staff jahit submit
+Ide dari Teja, terkait langsung dengan item "verifikasi 2 pihak QC" yang sudah dicatat di bagian 34:
+- Begitu staff jahit submit klaim jumlah (scan/status pending, belum terverifikasi -- lihat bagian 34), sistem langsung kirim NOTIFIKASI ke staff QC (lewat WhatsApp atau channel lain) supaya QC tahu ada yang perlu dicek
+- Tujuan: QC tidak perlu cek manual berkala, langsung dapat notif real-time begitu ada submission baru yang menunggu verifikasi jumlah pcs
+- Detail channel notifikasi (WA API resmi/gateway, atau alternatif lain) BELUM diriset -- dicatat sebagai kebutuhan, bukan keputusan teknis
+
+Next steps
+[ ] Riset channel notifikasi yang dipakai (WA Business API, atau alternatif) -- belum diputuskan
+[ ] Desain ini menyatu dengan redesain resolveStageTransition/QC handling yang sudah direncanakan di bagian 34 -- bahas bareng, bukan terpisah
