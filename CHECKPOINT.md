@@ -1087,3 +1087,48 @@ Next steps
 [ ] Reboot VPS (load kernel baru + validasi pm2 systemd penuh -- lihat bagian 41)
 [ ] Verifikasi backup pertama yang jalan otomatis lewat cron besok pagi jam 3 (cek ~/backups/backup.log dan file baru muncul)
 [ ] Item lama yang belum tersentuh: verifikasi NOTIFY order_state_changed end-to-end, desain BUNDLE_ALLOCATION, spec-lock function
+
+45. Cleanup Key ssh-rsa Lama — SELESAI ✅ (8 Agustus 2026, item hardening TERAKHIR dari bagian 11)
+Status: Semua 4 item hardening di bagian 11 sekarang tuntas.
+
+Temuan — ternyata ada 3 key, bukan 2 seperti dugaan checkpoint lama
+cat ~/.ssh/authorized_keys menunjukkan 3 baris:
+1. ssh-rsa (key lama, sudah tidak dipakai)
+2. ssh-ed25519 ...AAAAIAhj/9G6... (huruf KECIL j -- key CORRUPT dari insiden noVNC, lihat bagian 14)
+3. ssh-ed25519 ...AAAAIAhJ/9G6... (huruf BESAR J -- key asli yang benar)
+
+Bagian 14 sebelumnya cuma mendokumentasikan fix (nambah key yang benar lewat ssh-copy-id), tapi key yang corrupt (huruf kecil j) TERNYATA tidak pernah dihapus -- cuma ketambahan yang baru di sampingnya. Baru ketahuan sekarang saat cleanup ssh-rsa dilakukan.
+
+Verifikasi key asli sebelum hapus apapun
+- Dicek langsung di Termux: cat ~/.ssh/id_ed25519.pub -> cocok PERSIS dengan baris ke-3 (huruf besar J)
+- Konfirmasi: yang harus dipertahankan cuma baris ke-3, baris 1 dan 2 aman dihapus
+
+Proses cleanup (hati-hati, dengan safety net)
+1. Backup dulu: cp ~/.ssh/authorized_keys ~/.ssh/authorized_keys.bak-20260808
+2. Buka session SSH kedua terpisah SEBELUM edit (jaga-jaga kalau ada kesalahan, masih ada akses lewat session lain)
+3. Edit via nano ~/.ssh/authorized_keys, hapus baris 1 (ssh-rsa) dan baris 2 (ssh-ed25519 huruf kecil j) pakai Ctrl+K per baris, sisakan cuma baris 3 (huruf besar J)
+4. Verifikasi isi file: cat ~/.ssh/authorized_keys -> cuma 1 baris tersisa, benar
+5. Test login BARU (bukan session yang sudah connect sebelumnya, karena itu tidak akan keputus meski authorized_keys diubah) dari Termux lokal yang belum SSH: ssh Rakyat@103.58.101.155 -> berhasil masuk tanpa diminta password, TERKONFIRMASI aman
+
+File backup ~/.ssh/authorized_keys.bak-20260808 dibiarkan ada di VPS (bukan di repo), sebagai arsip kalau suatu saat perlu rollback.
+
+Pelajaran
+- Dokumentasi "sudah di-fix" di checkpoint lama (bagian 14) ternyata cuma separuh selesai -- key baru ditambah, tapi key lama/corrupt tidak pernah dibersihkan. Konsisten dengan pelajaran berulang di checkpoint ini: verifikasi langsung ke sumber (di sini: isi file authorized_keys sebenarnya), jangan asumsikan status "selesai" dari deskripsi checkpoint semata.
+- Testing perubahan authorized_keys WAJIB pakai KONEKSI BARU, bukan session yang sudah terhubung sebelumnya -- session lama tetap jalan normal meski key dihapus, jadi tidak bisa dipakai untuk validasi.
+
+===================================================================
+SEMUA 4 ITEM HARDENING VPS DARI BAGIAN 11 — TUNTAS ✅ (8 Agustus 2026)
+===================================================================
+[x] Firewall UFW aktif (bagian 43)
+[x] Install Fail2Ban (bagian 43)
+[x] Verifikasi user Rakyat non-root dengan sudo access -- sudah dikonfirmasi sejak awal (bagian 11)
+[x] Setup backup manual rutin, pg_dump (bagian 44)
+[x] Cleanup key ssh-rsa lama (bagian 45, item ini)
+
+Next steps (update, hardening VPS sudah tidak ada lagi di list)
+[ ] Reboot VPS (load kernel baru yang sempat pending sejak bagian 43 + validasi pm2 systemd penuh -- lihat bagian 41, "Active: inactive (dead)" butuh reboot beneran untuk konfirmasi)
+[ ] Verifikasi backup pertama yang jalan otomatis lewat cron (cek ~/backups/backup.log dan file baru muncul jam 3 pagi)
+[ ] Verifikasi NOTIFY order_state_changed end-to-end -- masih belum ditest sejak bagian 38/39
+[ ] Desain BUNDLE_ALLOCATION (child bundle) -- blocker lama sejak bagian 13/31/33
+[ ] Function/procedure spec-lock (atomik: reserve inventory + ledger + event) -- belum tersentuh
+[ ] Desain validasi 2 pihak staff jahit vs QC (quantity validation) -- masih ide, belum ada skema/event (bagian 34)
