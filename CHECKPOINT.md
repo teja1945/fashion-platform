@@ -1298,3 +1298,35 @@ Next steps
 [ ] Riset lebih lanjut, ditunda sampai backend inti selesai
 [ ] Desain skema: tabel staff perlu kolom email + password_hash, tabel/mekanisme approval request (staff ajukan perubahan -> owner approve/reject), tabel terpisah untuk preferensi dashboard personal
 [ ] Jangan mulai coding fitur ini sebelum backend inti (spec-lock, endpoint order, BUNDLE_ALLOCATION) selesai
+
+52. Checklist Keamanan Berkelanjutan (8 Agustus 2026, HIDUP -- DIREVIEW TERUS-MENERUS, bukan sekali kerja selesai)
+Status: Prinsip yang disepakati -- TIDAK ADA sistem yang 100% "tidak bisa dibobol", target realistisnya MEMINIMALKAN risiko + TAHAN terhadap serangan umum + CEPAT TAHU kalau ada yang aneh. Checklist ini harus terus direview tiap kali nambah fitur baru, bukan daftar yang sekali dicentang lalu selesai selamanya.
+
+Yang SUDAH ADA (fondasi bagus, per 8 Agustus 2026)
+[x] RLS aktif di semua tabel (isolasi data antar-tenant, bagian 22/24)
+[x] Parameterized queries di semua tempat (aman dari SQL injection, bagian 13)
+[x] PIN staff di-hash pakai pgcrypto, bukan plain text (bagian 13)
+[x] UFW firewall aktif, cuma port SSH yang terbuka ke publik (bagian 43)
+[x] Fail2Ban aktif, proteksi brute-force SSH (bagian 43)
+[x] SSH cuma bisa pakai key, password login mati total (bagian 11/14)
+[x] Rate limiting brute-force PIN staff (bagian 13, per staff_id + per IP)
+[x] Pesan error login tidak membocorkan staff_id valid/tidak (bagian 13)
+[x] Backup rutin terjadwal (bagian 44)
+
+Yang BELUM ADA -- perlu direview/dikerjakan ke depan
+[ ] Rate limiting di level API secara umum (bukan cuma endpoint PIN) -- supaya endpoint lain juga tidak bisa di-spam request
+[ ] HTTPS/SSL -- backend sekarang masih HTTP polos, WAJIB pakai HTTPS begitu ada domain/frontend live (jangan sampai lupa sebelum expose ke publik sungguhan)
+[ ] Validasi input lebih ketat di SEMUA endpoint (bukan cuma yang sudah ada validasinya)
+[ ] Audit log lebih lengkap -- siapa akses apa, kapan (untuk deteksi dini aktivitas mencurigakan, bukan cuma console.error)
+[ ] Monitoring/alerting otomatis -- misal notifikasi kalau ada banyak login gagal beruntun, atau pola akses yang aneh
+[ ] Enkripsi data sensitif tambahan -- misal nomor telepon/alamat customer, bukan cuma PIN/password staff
+[ ] Rate limiter & session in-memory (sessionMap, rateLimitMap) masih single-instance -- perlu pindah ke Redis kalau nanti backend di-scale multi-instance (sudah dicatat sejak bagian 13, masih relevan)
+[ ] API_KEY tunggal untuk semua endpoint -- pertimbangkan API key granular per tenant/integrasi ke depannya (bagian 13)
+
+Prinsip untuk fitur BARU ke depan (terutama dari bagian 47-51, self-service tenant/staff)
+- Kalau ada fitur self-service baru (ganti password, upload file, dll), SELALU tanya: "kalau ini disalahgunakan, dampaknya sejauh mana?" sebelum implementasi
+- Prinsip privasi dari bagian 50 poin E WAJIB dipegang: tenant/staff tidak pernah dikasih akses ke infrastruktur/kredensial Teja dalam bentuk apapun
+
+Next steps
+[ ] Review checklist ini SETIAP KALI ada fitur baru yang melibatkan data sensitif atau akses baru (bukan cuma pas fase hardening awal)
+[ ] Prioritas paling dekat: HTTPS/SSL begitu domain/frontend mulai live
