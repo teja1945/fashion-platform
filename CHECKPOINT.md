@@ -73,7 +73,7 @@ Bug-bug kritis yang sudah ditemukan & diperbaiki (detail lengkap di archive, jan
 [ ] Desain child bundle (BUNDLE_ALLOCATION) — masih blocker lama, ingestion.js return HTTP 501 untuk event ini
 [ ] Function/procedure spec-lock (atomik: reserve inventory + ledger + event) — belum tersentuh sama sekali
 [ ] Redesain resolveStageTransition/QC handling dengan validasi quantity 2 pihak (staff jahit submit pending → QC konfirmasi jumlah aktual → discrepancy dicatat dengan jejak) — lihat bagian 7 poin C
-[ ] Audit field bigint lain yang dibaca lewat pg (potensi bug string-concat sama seperti sequence_version)
+[x] Audit field bigint lain yang dibaca lewat pg -- SELESAI 9 Agustus 2026, tidak ada bug tambahan ditemukan (detail bagian 55)
 [ ] HTTPS/SSL sebelum backend expose ke publik/domain live
 
 ===================================================================
@@ -186,3 +186,23 @@ Update bagian 54 (8 Agustus 2026) — Fix bug kebocoran tenant SELESAI
 - CATATAN TEKNIS -- pelajaran dari proses coding: hindari python3 -c "..." (double-quote) untuk script yang mengandung tanda ! -- bash melakukan history expansion dan bisa merusak isi string sebelum sampai ke Python. Pakai heredoc python3 << 'PYEOF' ... PYEOF (single-quote delimiter) supaya bash tidak melakukan expansion apapun.
 - Testing final: tenant invalid ditolak di handshake (403, tidak ada data terkirim), tenant valid (demo) tetap connect normal dan menerima notifikasi dengan payload benar -- keduanya diverifikasi lewat simulasi header Host manual (ws://localhost:3000 dengan header host: demo.fashion-platform.local)
 - Commit: e07dad8
+
+===================================================================
+55. Audit Field Bigint Lain (9 Agustus 2026, SELESAI)
+===================================================================
+Status: Next step lama (bagian 5) yang jadi prioritas karena berhubungan langsung dengan bug sequence_version yang diperbaiki di bagian 36.
+
+Kolom bigint di schema live (cek langsung ke DB, bukan file schema.sql):
+- gap_audit_log.version_at_gap
+- pending_events.sequence_version
+- production_events.sequence_version
+- production_jobs.current_version
+- production_jobs.next_sequence_version
+- stale_event_log.sequence_version
+
+Hasil audit:
+- Semua akses kolom ini yang dipakai untuk logika perbandingan/increment (stateLayer.js, versioning.js) sudah dibungkus parseInt(...,10) -- ini perbaikan yang sudah dilakukan di bagian 36
+- worker.js men-select production_jobs.current_version (baris 18, alias pj.current_version) tapi kolom ini TIDAK PERNAH dipakai di logic manapun di checkGapsForTenant() -- cuma gap_status, age_seconds, already_escalated, production_job_id yang dipakai. No-op, tidak ada bug.
+- Tidak ditemukan bug string-concat tambahan di luar yang sudah diperbaiki di bagian 36.
+
+Kesimpulan: Audit tuntas, tidak ada fix tambahan diperlukan.
