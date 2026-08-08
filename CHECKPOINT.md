@@ -964,3 +964,30 @@ pm2 startup + save — SELESAI ✅
 - `pm2 startup systemd -u Rakyat --hp /home/Rakyat` dijalankan, systemd service `pm2-Rakyat.service` terpasang & enabled (`/etc/systemd/system/pm2-Rakyat.service`)
 - `pm2 save` sukses, process list `fashion-platform` di-freeze ke `~/.pm2/dump.pm2` -- ini yang dibaca `pm2 resurrect` saat boot
 - Verifikasi: `sudo systemctl status pm2-Rakyat` -> `Loaded: enabled`, tapi `Active: inactive (dead)` -- ini NORMAL, bukan bug. pm2 daemon saat ini jalan sebagai proses yang di-spawn manual (dari `pm2 restart` sebelumnya), bukan di-spawn oleh systemd, jadi systemd belum "pegang" prosesnya sampai reboot beneran terjadi. Validasi penuh (`Active: active`) baru bisa dikonfirmasi setelah VPS di-reboot resmi -- next step, sengaja digabung nanti pas hardening VPS (UFW/Fail2Ban) yang juga kemungkinan butuh reboot.
+
+42. SUPABASE_URL + SUPABASE_SECRET_KEY di .env + /v1/photos Dites — SELESAI ✅ (8 Agustus 2026)
+Status: Item terakhir dari next-steps bagian 39 (SUPABASE_URL/SECRET_KEY belum ada di .env) sudah beres. Endpoint /v1/photos full dites & lolos.
+
+Setup .env
+- SUPABASE_URL ditambah: https://kwhybffbcqopqbbnuigg.supabase.co (diambil via Supabase MCP get_project_url, aman ditampilkan)
+- SUPABASE_SECRET_KEY ditambah manual lewat nano di VPS -- value diambil dari dashboard Supabase Settings > API Keys > Secret keys (service_role), format baru sb_secret_... (41 karakter), BUKAN format JWT lama eyJ...
+- Setelah edit .env, WAJIB restart pm2 (`pm2 restart fashion-platform`) supaya dotenv baca ulang file -- env var TIDAK auto-reload tanpa restart proses
+- Konsekuensi restart: sessionMap in-memory ke-reset, semua staff token lama jadi invalid ("sesi kadaluarsa") -- staff/admin perlu login ulang setelah tiap restart server. Ini bawaan desain in-memory session (sudah dicatat sebagai keterbatasan single-instance di bagian 13, poin "Rate limiter & session in-memory")
+
+Bucket Supabase Storage belum ada -- dibuat baru
+- Dicek dulu via SQL `SELECT * FROM storage.buckets` -- kosong, bucket `stage-photos` yang direferensikan kode server.js (`/v1/photos`) belum pernah dibuat
+- Dibuat via Supabase MCP: `INSERT INTO storage.buckets (id, name, public, file_size_limit) VALUES ('stage-photos', 'stage-photos', false, 5242880)` -- private bucket, limit 5MB (selaras dengan validasi ukuran di server.js)
+- Upload di server.js pakai SUPABASE_SECRET_KEY (service_role) sebagai header `apikey` -- ini bypass RLS storage policy otomatis, jadi TIDAK perlu bikin storage policy tambahan untuk alur upload dari backend
+
+Testing /v1/photos -- SUKSES
+- Test pakai file JPEG 1x1 pixel kecil (base64), staff Admin Demo (token baru setelah re-login pasca restart)
+- POST /v1/photos dengan production_job_id job test (current_stage packing) + stage "packing" (harus cocok current_stage, divalidasi terhadap pipeline_snapshot job, bukan hardcode) -- berhasil, response ok:true + row production_stage_photos lengkap
+- Diverifikasi 2 arah: row di tabel production_stage_photos ADA, dan file fisik di storage.objects (bucket stage-photos) JUGA ada, size 287 bytes, metadata match
+
+Next steps
+[ ] Semua endpoint di server.js baru (bagian 38) sekarang SUDAH full dites: staff login, lock acquire/force-unlock, staff revoke/offboard, photos -- next fokus geser ke item lama yang belum tersentuh
+[ ] Audit MaxListenersExceededWarning + DeprecationWarning (pg client.query race) yang muncul di pm2 log -- BELUM diselidiki, dicatat buat sesi terpisah dengan log bersih (restart dulu, amati dari nol apakah listener nambah terus atau cuma numpukan lama)
+[ ] Verifikasi channel NOTIFY order_state_changed end-to-end (masih belum ditest end-to-end sejak bagian 38/39)
+[ ] Desain BUNDLE_ALLOCATION (child bundle) -- masih blocker lama sejak bagian 13/31/33
+[ ] Function/procedure spec-lock (atomik: reserve inventory + ledger + event) -- belum tersentuh
+[ ] Sisa hardening VPS: UFW, Fail2Ban, backup rutin, cleanup key ssh-rsa lama (bagian 11)
