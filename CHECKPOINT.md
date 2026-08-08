@@ -986,8 +986,14 @@ Testing /v1/photos -- SUKSES
 
 Next steps
 [ ] Semua endpoint di server.js baru (bagian 38) sekarang SUDAH full dites: staff login, lock acquire/force-unlock, staff revoke/offboard, photos -- next fokus geser ke item lama yang belum tersentuh
-[ ] Audit MaxListenersExceededWarning + DeprecationWarning (pg client.query race) yang muncul di pm2 log -- BELUM diselidiki, dicatat buat sesi terpisah dengan log bersih (restart dulu, amati dari nol apakah listener nambah terus atau cuma numpukan lama)
+[x] Audit MaxListenersExceededWarning + DeprecationWarning -- SELESAI, terkonfirmasi cuma numpukan lama, bukan bug (lihat catatan di bawah)
 [ ] Verifikasi channel NOTIFY order_state_changed end-to-end (masih belum ditest end-to-end sejak bagian 38/39)
 [ ] Desain BUNDLE_ALLOCATION (child bundle) -- masih blocker lama sejak bagian 13/31/33
 [ ] Function/procedure spec-lock (atomik: reserve inventory + ledger + event) -- belum tersentuh
 [ ] Sisa hardening VPS: UFW, Fail2Ban, backup rutin, cleanup key ssh-rsa lama (bagian 11)
+
+Investigasi MaxListenersExceededWarning + DeprecationWarning — SELESAI, TERKONFIRMASI BUKAN BUG ✅ (8 Agustus 2026)
+- Log di-flush (`pm2 flush`), server di-restart, diamati dari nol
+- Startup baru: error.log KOSONG total, cuma 3 baris normal di out.log
+- Ditest lagi dengan endpoint yang query DB (staff/login, lock/force-unlock) -- error.log tetap bersih, tidak ada warning baru muncul
+- Kesimpulan: warning sebelumnya murni numpukan dari puluhan percobaan gagal EADDRINUSE (bagian 41, sebelum proses lama di-kill -9), BUKAN bug aktif di kode. Tidak perlu perbaikan kode apapun untuk ini.
