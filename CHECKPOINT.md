@@ -997,3 +997,37 @@ Investigasi MaxListenersExceededWarning + DeprecationWarning — SELESAI, TERKON
 - Startup baru: error.log KOSONG total, cuma 3 baris normal di out.log
 - Ditest lagi dengan endpoint yang query DB (staff/login, lock/force-unlock) -- error.log tetap bersih, tidak ada warning baru muncul
 - Kesimpulan: warning sebelumnya murni numpukan dari puluhan percobaan gagal EADDRINUSE (bagian 41, sebelum proses lama di-kill -9), BUKAN bug aktif di kode. Tidak perlu perbaikan kode apapun untuk ini.
+
+43. Hardening VPS — UFW + Fail2Ban Aktif — SELESAI ✅ (8 Agustus 2026)
+Status: 2 dari 4 item hardening yang tersisa di bagian 11 sekarang beres.
+
+UFW (firewall)
+- Sebelumnya inactive total. Diaktifkan dengan urutan aman: allow OpenSSH dulu, baru enable, supaya tidak terkunci dari VPS sendiri.
+- Verifikasi port 3000 (server.js) sebelum enable: dicek pakai curl -H "Host: demo.fashion-platform.com" http://localhost:3000/v1/whoami dari dalam VPS — hasilnya sukses, mengonfirmasi akses selama ini memang dari localhost, bukan dari luar. Jadi port 3000 SENGAJA TIDAK dibuka ke publik (aman ditutup untuk fase ini, belum ada frontend live yang butuh akses langsung).
+- Status akhir: active, default deny incoming, cuma 22/tcp (OpenSSH) yang di-allow (IPv4 + IPv6).
+
+Fail2Ban (proteksi brute-force SSH)
+- Diinstall via apt (fail2ban, python3-pyinotify, whois sebagai dependency).
+- Config custom dibuat di /etc/fail2ban/jail.local (BUKAN edit jail.conf langsung, supaya tidak ketimpa saat update package):
+  [sshd]
+  enabled = true
+  port = 22
+  filter = sshd
+  logpath = /var/log/auth.log
+  maxretry = 5
+  bantime = 3600
+  findtime = 600
+- Diverifikasi jalan: systemctl status fail2ban -> active (running), fail2ban-client status sshd -> jail sshd aktif, memonitor /var/log/auth.log, 0 banned (normal, belum ada percobaan brute-force).
+
+Catatan sampingan
+- Muncul notifikasi "Pending kernel upgrade" (5.15.0-186 -> 5.15.0-187) saat apt install fail2ban -- bukan masalah, kernel baru sudah terdownload tapi belum aktif sampai reboot. Sengaja ditunda, digabung nanti pas reboot untuk validasi pm2 systemd (lihat bagian 41, "Active: inactive (dead)" perlu reboot beneran untuk konfirmasi penuh).
+
+Sisa hardening dari bagian 11 (2 item terakhir)
+[ ] Backup manual rutin (pg_dump ke storage terpisah)
+[ ] Cleanup key ssh-rsa lama di authorized_keys (2 key masih ada: ssh-rsa lama + ssh-ed25519 fashion-platform)
+
+Next steps
+[ ] Lanjut backup pg_dump rutin
+[ ] Cleanup ssh-rsa lama
+[ ] Reboot VPS (sekalian load kernel baru + validasi pm2 systemd penuh -- lihat bagian 41)
+[ ] Item lama yang belum tersentuh: verifikasi NOTIFY order_state_changed end-to-end, desain BUNDLE_ALLOCATION, spec-lock function
