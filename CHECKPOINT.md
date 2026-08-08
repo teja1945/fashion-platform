@@ -1176,3 +1176,16 @@ Update bagian 25 (8 Agustus 2026) — Tambahan: Harga per komponen
 - Total harga = base price baju + akumulasi price_addition dari semua komponen yang dipilih customer
 - Harga ditampilkan REAL-TIME saat customer masih tap-tap milih komponen (sebelum checkout) -- tujuan: transparansi, customer tahu harga final sebelum order dibuat
 - Siapa yang set harga: tenant sendiri (mereka yang tahu biaya produksi tiap variasi) -- kemungkinan lewat admin panel tenant, belum didesain detail
+
+48. Ide Awal — Tenant Kaos: Sablon 3D + Upload Gambar Sendiri (8 Agustus 2026, BELUM DIRISET MATANG)
+Status: IDE AWAL dari Teja, bukan keputusan final. Dicatat apa adanya, BELUM dievaluasi solusi teknisnya -- sengaja ditunda sampai riset dilakukan nanti (rencana pakai Claude Code begitu tersedia), supaya tidak kebawa bias dari diskusi sebelumnya.
+
+Ide dari Teja
+- Untuk tenant kaos, ingin ada fitur 3D untuk gambar sablon
+- Customer bisa PILIH desain sablon yang disediakan tenant, ATAU upload gambar sendiri langsung
+- Ini beda dari visual configurator tailor (bagian 25, fokus ke model/komponen jahitan seperti kerah/saku) -- untuk kaos, yang dikustomisasi itu desain SABLON di permukaan kaos
+
+Next steps
+[ ] BELUM ada keputusan teknis apapun -- riset penuh dari nol nanti, termasuk opsi 3D dan alternatif lain, tanpa terikat diskusi/asumsi sebelumnya
+[ ] Riset ditunda sampai ada akses tool development yang lebih memadai (Claude Code, dll -- lihat bagian 10/16/28)
+[ ] Jangan mulai coding fitur ini sebelum backend inti selesai
