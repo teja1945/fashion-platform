@@ -1330,3 +1330,21 @@ Prinsip untuk fitur BARU ke depan (terutama dari bagian 47-51, self-service tena
 Next steps
 [ ] Review checklist ini SETIAP KALI ada fitur baru yang melibatkan data sensitif atau akses baru (bukan cuma pas fase hardening awal)
 [ ] Prioritas paling dekat: HTTPS/SSL begitu domain/frontend mulai live
+
+53. Ide Awal — 2FA Login + Subdomain Custom Pilihan Tenant Sendiri (8 Agustus 2026, BELUM DIRISET MATANG)
+Status: IDE AWAL dari Teja, bukan keputusan final. Belum ada desain skema/implementasi.
+
+A. 2FA (Two-Factor Authentication) untuk login staff/owner
+- Setuju perlu LAPISAN TAMBAHAN keamanan di login (di atas PIN/email+password yang sudah/akan ada, bagian 13/51)
+- Setelah masuk kredensial pertama (PIN atau email+password), ada langkah kedua verifikasi -- kemungkinan kode OTP via WA/SMS/email, atau aplikasi authenticator
+- Belum diputuskan: wajib untuk semua role atau opsional (misal wajib untuk admin/owner karena aksesnya lebih sensitif, opsional untuk staff biasa)
+
+B. Subdomain custom -- tenant pilih nama sendiri
+- Arsitektur subdomain per tenant sudah ada di rencana (bagian 3: namatenant.domain.com), sekarang ditegaskan: TENANT SENDIRI yang pilih nama subdomain mereka, bukan Teja yang tentukan
+- Nyambung ke ide onboarding self-service (bagian 50) -- saat tenant daftar, mereka input nama subdomain yang diinginkan, sistem cek dulu apakah nama itu sudah dipakai tenant lain atau belum (harus unique)
+
+Next steps
+[ ] Riset lebih lanjut, ditunda sampai backend inti + onboarding self-service selesai
+[ ] Desain skema 2FA: kemungkinan kolom di tabel staff untuk simpan status 2FA aktif/tidak, secret key untuk authenticator, atau integrasi OTP eksternal
+[ ] Desain validasi nama subdomain saat pendaftaran tenant (format yang diperbolehkan, cek duplikat, kata-kata terlarang/reserved)
+[ ] Jangan mulai coding fitur ini sebelum backend inti (spec-lock, endpoint order, BUNDLE_ALLOCATION) selesai
