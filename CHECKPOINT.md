@@ -1199,3 +1199,43 @@ Ide dari Teja, terkait langsung dengan item "verifikasi 2 pihak QC" yang sudah d
 Next steps
 [ ] Riset channel notifikasi yang dipakai (WA Business API, atau alternatif) -- belum diputuskan
 [ ] Desain ini menyatu dengan redesain resolveStageTransition/QC handling yang sudah direncanakan di bagian 34 -- bahas bareng, bukan terpisah
+
+49. Ide Awal — Sistem Upah Staff Jahit (Borongan Per Pcs) + Diskusi Reject (8 Agustus 2026, BELUM DIRISET MATANG)
+Status: IDE AWAL dari Teja, bukan keputusan final. Dicatat detail lengkap dari hasil tanya-jawab, belum ada desain skema/implementasi.
+
+Basis perhitungan upah
+- Borongan per pcs (contoh: 1 pcs = Rp5.000), tiap kali staff setor kerjaan otomatis tercatat semacam nota (1 x 5000 = 5000)
+- Akumulasi terus sampai tutup buku/hari gajian
+- Owner TIDAK BISA input/masukin kerjaan manual -- semua otomatis dari sistem (dari data setoran staff yang sudah lolos QC), mencegah manipulasi angka
+- Total akhir bisa didiskusikan/dicek dulu bareng staff sebelum ditransfer (owner + staff jahit ngobrol dulu, baru TF)
+
+Sumber data
+- Staff scan QR kerjaan selesai -> data masuk ke kolom staff itu, TAPI berstatus belum resmi/pending
+- Begitu QC verifikasi jumlah dan LOLOS, baru otomatis nambah ke total upah staff yang bersangkutan
+- Ini konsisten dengan pola "verifikasi 2 pihak" yang sudah dicatat di bagian 34 (staff submit pending -> QC konfirmasi jumlah aktual)
+
+Tarif -- diatur per tenant, self-service
+- Tarif per pcs (dan kemungkinan per jenis pekerjaan/komponen) diatur SENDIRI oleh masing-masing tenant
+- Tenant bisa ubah tarif sendiri kapan saja lewat sistem (bukan Teja yang set manual per tenant)
+
+Tampilan untuk staff -- real-time + rincian + total berjalan
+- Staff bisa cek progress upah mereka KAPAN SAJA (real-time), tujuannya supaya staff tahu sudah dapat berapa dan masih perlu berapa pcs lagi untuk capai target harian mereka sendiri
+- Tampilan berupa RINCIAN per setoran (mirip nota): tiap kali ada setoran baru yang lolos QC, list bertambah ke bawah (misal: "Jahit A lolos 5 pcs x Rp5.000 = Rp25.000", "Jahit B lolos 3 pcs x Rp5.000 = Rp15.000", dst)
+- Di PALING BAWAH ada baris TOTAL KESELURUHAN yang otomatis update tiap ada setoran baru masuk (contoh: "Total hari ini: Rp1.000.000") -- staff tidak perlu jumlahin manual
+
+Kasus reject -- TIDAK langsung final, ada sesi diskusi per-kasus
+- Kalau QC reject sebagian dari setoran (misal dari 10 pcs disetor, 1 reject), TIDAK langsung dianggap final/salah staff jahit begitu saja
+- Setiap kejadian reject otomatis membuat SESI DISKUSI TERPISAH khusus kasus itu (bukan 1 grup chat besar campur semua kasus) -- tiap kasus reject punya ruang obrolannya sendiri-sendiri
+- Sistem OTOMATIS memasukkan pihak-pihak relevan ke sesi itu: owner, staff QC yang reject, staff jahit yang kena reject, DAN staff gudang/cutting kalau dicurigai sumber masalah dari situ (misal kain dari gudang salah, atau hasil cutting yang salah)
+- Tujuan: klarifikasi dulu SUMBER kesalahan sebelum ambil keputusan (bukan asumsi otomatis salah staff jahit)
+- Kalau ternyata memang salah fatal dari staff jahit ATAU dari cutting -- keputusan TETAP TIDAK otomatis/mati. Perlu ADA PERSETUJUAN OWNER dulu (dipanggil ke sesi diskusi/grup) baru ditentukan: tetap dianggap lolos masuk nota, ATAU dikurangi sesuai jumlah reject
+- Prinsip: sistem memfasilitasi diskusi & jejak audit, TAPI keputusan final soal uang/upah tetap di tangan owner (human judgment), tidak sepenuhnya otomatis
+
+Hubungan dengan bagian lain
+- Nyambung langsung ke bagian 34 (verifikasi 2 pihak QC, resolveStageTransition redesign) dan bagian 47 update (notifikasi WA ke QC) -- ini semua bagian dari 1 alur besar: staff submit -> notif QC -> QC verifikasi -> kalau ada reject -> sesi diskusi -> keputusan owner -> baru masuk hitungan upah final
+
+Next steps
+[ ] Desain skema database untuk sistem upah (tabel tarif per tenant, tabel nota/transaksi upah, tabel sesi diskusi reject)
+[ ] Desain event baru untuk event-sourcing (kemungkinan: wage.earned, reject.discussion_opened, reject.resolved, dst -- lihat pola EVENT_CONTRACTS.md bagian 23)
+[ ] Riset ditunda sampai backend inti selesai, dan sejalan dengan redesain QC handling (bagian 34)
+[ ] Jangan mulai coding fitur ini sebelum backend inti (spec-lock, endpoint order, BUNDLE_ALLOCATION) selesai
