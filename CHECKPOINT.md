@@ -1170,3 +1170,9 @@ Ide B — Pattern library (pola baju) untuk tenant konveksi/pabrik + multi-forma
 Next steps
 [ ] Riset lebih lanjut kedua ide ini (ditunda, sambil jalan proyek, sama seperti bagian 25/26)
 [ ] Jangan mulai coding ide ini sebelum backend inti (spec-lock, endpoint order, BUNDLE_ALLOCATION) selesai
+
+Update bagian 25 (8 Agustus 2026) — Tambahan: Harga per komponen
+- Tiap opsi komponen (garment_component_options) perlu kolom tambahan: price_addition -- harga tambahan/pengurang dari base price baju, contoh: kerah shanghai +Rp0 (default), kerah kerung leher +Rp15.000
+- Total harga = base price baju + akumulasi price_addition dari semua komponen yang dipilih customer
+- Harga ditampilkan REAL-TIME saat customer masih tap-tap milih komponen (sebelum checkout) -- tujuan: transparansi, customer tahu harga final sebelum order dibuat
+- Siapa yang set harga: tenant sendiri (mereka yang tahu biaya produksi tiap variasi) -- kemungkinan lewat admin panel tenant, belum didesain detail
