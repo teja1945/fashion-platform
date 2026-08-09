@@ -316,3 +316,35 @@ Ide baru (9 Agustus 2026) -- bukti foto finishing, QR kode detail, dashboard bar
 - QR kode yang menandai barang selesai per-stage harus membawa detail lengkap: atas nama staff siapa yang mengerjakan, ukuran/spesifikasi barang, dll -- bukan cuma kode kosong buat scan pass/fail. Ini juga menutup celah kecurangan karena ada jejak siapa yang bertanggung jawab per item.
 - Dashboard "barang selesai dan siap kirim" -- daftar barang yang sudah lolos finishing dan dicek gudang, menunggu keputusan shipped, sebagai bagian dari inventory/stok barang jadi.
 Semua di atas dicatat apa adanya, belum diriset detail teknis (struktur QR, isi payload, desain dashboard).
+
+===================================================================
+Keputusan desain baru (9 Agustus 2026) -- rename stage + confirm berantai + ruang diskusi (VERSI FINAL)
+===================================================================
+PERUBAHAN NAMA STAGE: "packing" diganti jadi "finishing" -- lebih mencerminkan kerjaan sebenarnya (buang sisa benang jahit, pasang kancing/lubang kancing, setrika, pasang aksesoris/pin/logo/hangtag, baru packing rapi sebagai sub-aktivitas terakhir). PERLU UPDATE tenant_pipeline_stages dan semua tempat yang reference stage_key 'packing' jadi 'finishing'.
+
+Urutan pipeline final: gudang -> cutting -> jahit -> qc -> finishing -> shipped
+
+KONFIRMASI BERANTAI (siapa cek siapa) -- MEMUTAR BALIK ke gudang di titik akhir:
+- Submission gudang -> dicek staff cutting
+- Submission cutting -> dicek staff jahit
+- Submission jahit -> dicek staff qc
+- Submission qc -> dicek staff finishing
+- Submission finishing -> dicek staff GUDANG LAGI -- gudang berperan ganda: buka siklus (keluarkan bahan mentah di awal) dan tutup siklus (terima balik barang jadi sebelum dikirim, sekaligus cek stok/bahan cocok).
+- shipped murni status akhir order (barang sudah dikirim ke customer), BUKAN stage kerja staff -- tidak ada submission/confirm untuk shipped.
+
+RUANG DISKUSI (lapis 2) -- POLA SAMA untuk SEMUA pasangan stage (tidak ada pengecualian khusus untuk finishing->gudang seperti draft sebelumnya -- ini DIBATALKAN):
+- Setiap pasangan stage (submitter + confirmer) yang discrepancy otomatis dapat ruang diskusi sendiri, peserta otomatis staff yang submit + staff yang confirm.
+- KEDUA staff yang berdiskusi punya TOMBOL "panggil owner/staff kepercayaan" kapan saja selama diskusi berlangsung -- tidak perlu nunggu status tertentu, bisa langsung minta bantuan mediator kalau butuh.
+- Owner/staff kepercayaan JUGA punya visibilitas penuh ke SEMUA kasus terbuka di seluruh pabrik (semacam dashboard "semua diskusi aktif") -- bisa masuk sendiri ke ruang diskusi manapun kapan saja TANPA harus dipanggil dulu. Jadi ada 2 jalur masuk mediator: (1) dipanggil aktif oleh staff yang diskusi, (2) mediator lihat sendiri dan masuk inisiatif sendiri.
+- PENGECUALIAN KHUSUS UNTUK GUDANG SAJA (bukan finishing): staff gudang punya opsi TAMBAHAN saat submission finishing dia cek -- gudang BISA PILIH mau diskusi dulu normal dengan staff finishing (pola biasa), ATAU langsung manggil owner/staff kepercayaan tanpa diskusi dulu kalau kasusnya jelas serius (misal stok jelas hilang). Staff finishing sendiri TIDAK punya hak istimewa ini -- perannya sama seperti staff stage lain.
+- Owner/staff kepercayaan yang masuk sebagai mediator bisa memanggil staff lain yang bersangkutan ke ruang diskusi kapan saja jika perlu klarifikasi tambahan (fitur "saksi" -- staff ditambahkan ke participants oleh mediator).
+
+Endpoint 2 (POST /v1/stage-submissions/:id/confirm) PERLU DITULIS ULANG total mengikuti semua aturan di atas -- versi yang sudah ada sekarang (hardcode assigned_stage='qc' untuk semua stage) SUDAH TIDAK DIPAKAI, cuma untuk testing awal kemarin.
+
+===================================================================
+Ide baru (9 Agustus 2026) -- bukti foto finishing, QR kode detail, dashboard barang siap kirim
+===================================================================
+- Bukti foto tetap wajib untuk stage finishing juga (bagian dari ide anti-kecurangan yang sudah dicatat sebelumnya -- foto barang fisik di setiap submission, termasuk finishing).
+- QR kode yang menandai barang selesai per-stage harus membawa detail lengkap: atas nama staff siapa yang mengerjakan, ukuran/spesifikasi barang, dll -- bukan cuma kode kosong buat scan pass/fail. Ini juga menutup celah kecurangan karena ada jejak siapa yang bertanggung jawab per item.
+- Dashboard "barang selesai dan siap kirim" -- daftar barang yang sudah lolos finishing dan dicek gudang, menunggu keputusan shipped, sebagai bagian dari inventory/stok barang jadi.
+Semua di atas dicatat apa adanya, belum diriset detail teknis (struktur QR, isi payload, desain dashboard).
