@@ -237,3 +237,41 @@ Ide baru (9 Agustus 2026) -- dicatat apa adanya, belum diriset
 ===================================================================
 - Multi-bahasa (i18n) per tenant: platform harus support banyak bahasa karena target user tidak cuma Indonesia, bisa luar negeri juga. Scope: (1) UI -- tombol, label, menu, dll, (2) data yang tenant input sendiri -- misal nama produk -- juga perlu bisa multi-bahasa, bukan cuma UI statis. Belum diriset detail (struktur data, default bahasa, terjemahan otomatis vs manual).
 - Custom nada dering notifikasi per jenis: user (staff/admin/owner) bisa atur nada dering sendiri untuk tiap jenis notifikasi in-app platform (job baru, QC, discrepancy, eskalasi, dll) -- bukan cuma satu nada generik buat semua. Belum diriset detail.
+
+===================================================================
+57. QC 2-Pihak: Tabel + Endpoint Submit & Confirm (9 Agustus 2026)
+===================================================================
+Status: Bagian dari next step lama (bagian 5, poin C), desain QC 2-pihak. Lapis 1 selesai (submission + confirm), lapis 2 (ruang diskusi per kasus discrepancy) BELUM dikerjakan.
+
+Keputusan desain (hasil diskusi):
+- Staff jahit boleh submit qty berkali-kali per job+stage yang sama -- tidak ada limit. Ini menutup kasus "kelupaan setor" (misal ada barang nyangkut di keranjang, ditemukan belakangan) -- staff tinggal submit lagi terpisah, tidak perlu state khusus.
+- QC confirm PER SUBMISSION satu-satu (bukan digabung/ditotal dulu) -- lebih sesuai kejadian nyata karena QC mengecek barang begitu datang, bukan menunggu semua submission numpuk.
+- Kalau qty_confirmed QC beda dari qty_submitted staff (discrepancy): stage TETAP MAJU pakai qty_confirmed (tidak menunggu resolusi kasus) -- produksi tidak boleh macet karena kasus discrepancy. Tapi kasus tetap tercatat terbuka untuk ditindaklanjuti.
+- Eskalasi ke admin/staff kepercayaan/owner bersifat MANUAL (tombol/endpoint, bukan otomatis via timer) -- staff kepercayaan yang paling tahu kapan situasi layak dieskalasi (misal staff jahit sudah kasih alasan tapi tidak masuk akal). Auto-eskalasi (backstop timer) bisa ditambah belakangan kalau ternyata sering lupa dieskalasi manual.
+- Total quantity 1 stage = jumlah semua submission berstatus CONFIRMED (dihitung belakangan saat dibutuhkan, bukan saat confirm).
+
+Tabel: stage_quantity_submissions (rebuild dari versi lama yang skema-nya parsial)
+- Kolom baru dari versi lama: discrepancy_reason, discrepancy_responded_at, escalated_to_admin, escalated_at, resolved_at, resolved_by_staff_id
+- Status: PENDING_QC -> CONFIRMED atau DISCREPANCY -> (opsional) RESOLVED
+- RLS tenant_isolation aktif, FK ke tenants/production_jobs/staff
+- 0 security warning setelah deploy (get_advisors)
+
+Endpoint yang sudah jadi (2 dari 5 rencana):
+1. POST /v1/stage-submissions -- staff submit qty. Validasi: staff aktif, assigned_stage staff cocok stage_key yang disubmit, stage_key ada di pipeline job, current_stage job cocok stage_key (staff cuma bisa submit untuk stage aktif job). TIDAK ada limit submission per job+stage.
+2. POST /v1/stage-submissions/:id/confirm -- QC confirm qty. Validasi: staff aktif, assigned_stage = 'qc', submission masih PENDING_QC (409 kalau sudah diproses). Update status submission, lalu panggil ingestEvent() dengan event_type STAGE_COMPLETED untuk majukan stage (lewat jalur event-sourcing yang sudah ada di ingestion.js/versioning.js/stateLayer.js -- BUKAN update production_jobs langsung).
+
+Testing (via curl di VPS, staff testing dibuat manual):
+- Staff Jahit Demo (2efe0dcd-...) submit 49 -> PENDING_QC. Submit lagi 1 (job+stage sama) -> diterima, submission kedua terpisah. Staff jahit coba submit ke stage 'qc' (bukan stage-nya) -> ditolak 403.
+- Staff QC Demo (664f0cbb-...) confirm submission qty 49 dengan qty_confirmed 49 (sama) -> CONFIRMED, stage maju normal.
+- Confirm submission qty 1 dengan qty_confirmed 0 (beda) -> DISCREPANCY, stage TETAP maju (terbukti: current_stage job testing berubah dari jahit ke qc).
+
+PELAJARAN PENTING dari sesi testing ini:
+- JANGAN update current_stage atau next_sequence_version di production_jobs secara manual lewat SQL untuk keperluan testing -- ini merusak sinkronisasi dengan current_version dan production_events, menyebabkan gap terdeteksi (gap_status jadi OPEN) dan event StageCompleted gagal ter-apply (ter-buffer di pending_events karena sequence_version tidak berurutan).
+- Kalau perlu majukan stage job untuk testing, harus lewat ingestEvent()/endpoint asli (event-sourcing), BUKAN update kolom production_jobs langsung.
+- Kalau terlanjur (seperti kejadian di sesi ini): cek current_version vs max(sequence_version) di production_events, lalu sinkronkan next_sequence_version dan current_version manual agar cocok dengan event terakhir yang benar-benar ada.
+
+Next steps untuk bagian 57:
+- Endpoint 3: staff jahit kasih discrepancy_reason untuk kasus DISCREPANCY miliknya
+- Endpoint 4: QC/admin eskalasi manual ke staff kepercayaan/owner (escalated_to_admin = true)
+- Endpoint 5: staff kepercayaan/owner putuskan final, tutup kasus (status RESOLVED)
+- Lapis 2 (belum didesain): ruang diskusi khusus per kasus discrepancy -- thread dengan pihak terlibat (staff jahit, QC, staff kepercayaan/owner), saksi, bukti, penengah, dan keputusan akhir. Ini nyambung ke ide lama poin F di bagian 7 (sesi diskusi khusus per kasus reject).
