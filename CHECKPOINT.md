@@ -275,3 +275,12 @@ Next steps untuk bagian 57:
 - Endpoint 4: QC/admin eskalasi manual ke staff kepercayaan/owner (escalated_to_admin = true)
 - Endpoint 5: staff kepercayaan/owner putuskan final, tutup kasus (status RESOLVED)
 - Lapis 2 (belum didesain): ruang diskusi khusus per kasus discrepancy -- thread dengan pihak terlibat (staff jahit, QC, staff kepercayaan/owner), saksi, bukti, penengah, dan keputusan akhir. Ini nyambung ke ide lama poin F di bagian 7 (sesi diskusi khusus per kasus reject).
+
+===================================================================
+Ide baru (9 Agustus 2026) -- anti-kecurangan submission/QC, belum diriset
+===================================================================
+Kekhawatiran: dua staff yang berurutan (misal jahit + QC) bisa KOMPAK curang -- scan/confirm qty besar padahal barang belum benar-benar dikerjakan, demi setoran/rekap kerja yang lebih cepat/banyak. Sistem tidak bisa 100% mencegah kolusi 2 pihak, tapi bisa dipersulit + dikasih jejak yang gampang dicek. Opsi yang sudah didiskusikan (belum diriset/dieksekusi):
+- Wajib lampir foto bukti fisik barang di setiap submission (pakai endpoint /v1/photos yang sudah ada)
+- Silang-cek otomatis qty yang di-confirm vs bahan baku yang benar-benar dipakai (pakai data dari reserve_fabric_inventory bagian 56) -- kalau qty jadi tidak masuk akal dibanding bahan yang kepakai, sistem kasih tanda perlu dicek
+- Deteksi pola aneh: staff/pasangan staff yang HAMPIR TIDAK PERNAH ada discrepancy sama sekali (terlalu mulus dibanding stage lain) ditandai untuk dicek manual oleh staff kepercayaan/owner
+- Rotasi pasangan kerja secara berkala (kebijakan operasional, bukan fitur sistem) supaya lebih sulit kompak curang dalam jangka panjang
