@@ -514,6 +514,104 @@ app.post("/v1/stage-submissions", tenantResolver, requireApiKey, requireStaffSes
 });
 
 // =====================================================================
+// STAGE QUANTITY SUBMISSIONS -- QC confirm (bagian 57 lanjutan)
+// QC confirm per submission satu-satu (bukan digabung). Kalau qty beda
+// (discrepancy), status jadi DISCREPANCY tapi stage TETAP maju pakai
+// qty_confirmed -- produksi tidak boleh macet menunggu resolusi kasus.
+// =====================================================================
+app.post("/v1/stage-submissions/:id/confirm", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
+  const { id } = req.params;
+  const { qty_confirmed } = req.body || {};
+  const staffId = req.staffSession.staffId;
+
+  if (qty_confirmed === undefined) {
+    return res.status(400).json({ error: "qty_confirmed wajib diisi" });
+  }
+  const qtyConf = Number(qty_confirmed);
+  if (!Number.isFinite(qtyConf) || qtyConf < 0) {
+    return res.status(400).json({ error: "qty_confirmed harus angka >= 0" });
+  }
+
+  const client = await pool.connect();
+  let orderId, eventPayload;
+  try {
+    const result = await withTenant(client, req.tenantId, async (c) => {
+      const staffCheck = await c.query(
+        `SELECT id, assigned_stage FROM staff WHERE id = $1 AND is_active = true`,
+        [staffId]
+      );
+      if (staffCheck.rows.length === 0) {
+        return { httpStatus: 403, body: { error: "staff tidak ditemukan atau tidak aktif" } };
+      }
+      if (staffCheck.rows[0].assigned_stage !== "qc") {
+        return { httpStatus: 403, body: { error: "hanya staff QC yang boleh confirm submission" } };
+      }
+
+      const subRes = await c.query(
+        `SELECT id, production_job_id, stage_key, qty_submitted, status
+         FROM stage_quantity_submissions WHERE id = $1`,
+        [id]
+      );
+      if (subRes.rows.length === 0) {
+        return { httpStatus: 404, body: { error: "submission tidak ditemukan" } };
+      }
+      const sub = subRes.rows[0];
+      if (sub.status !== "PENDING_QC") {
+        return { httpStatus: 409, body: { error: `submission sudah berstatus ${sub.status}, tidak bisa confirm ulang` } };
+      }
+
+      const newStatus = Number(sub.qty_submitted) === qtyConf ? "CONFIRMED" : "DISCREPANCY";
+
+      await c.query(
+        `UPDATE stage_quantity_submissions
+         SET qty_confirmed = $1, confirmed_by_staff_id = $2, confirmed_at = now(), status = $3
+         WHERE id = $4`,
+        [qtyConf, staffId, newStatus, id]
+      );
+
+      const jobRes = await c.query(`SELECT order_id FROM production_jobs WHERE id = $1`, [sub.production_job_id]);
+      if (jobRes.rows.length === 0) {
+        return { httpStatus: 404, body: { error: "production_job tidak ditemukan" } };
+      }
+
+      return {
+        httpStatus: 200,
+        body: { id, status: newStatus, qty_submitted: sub.qty_submitted, qty_confirmed: qtyConf },
+        _orderId: jobRes.rows[0].order_id,
+        _stageKey: sub.stage_key,
+        _newStatus: newStatus,
+      };
+    });
+
+    if (result.httpStatus !== 200) {
+      return res.status(result.httpStatus).json(result.body);
+    }
+
+    orderId = result._orderId;
+
+    const eventResult = await ingestEvent({
+      tenant_id: req.tenantId,
+      order_id: orderId,
+      event_type: "STAGE_COMPLETED",
+      payload: { qty_confirmed: qtyConf, submission_id: id, discrepancy: result._newStatus === "DISCREPANCY" },
+      source: "qc_confirm",
+    });
+
+    if (eventResult.httpStatus >= 400) {
+      console.error("stage-submissions confirm: stage gagal maju setelah QC confirm", eventResult.body);
+      return res.status(200).json({ ...result.body, stage_advance_warning: eventResult.body });
+    }
+
+    res.status(200).json(result.body);
+  } catch (err) {
+    console.error("stage-submissions confirm error:", err);
+    res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
+  }
+});
+
+// =====================================================================
 // PRODUCTION STAGE PHOTOS
 // Stage divalidasi terhadap pipeline_snapshot job itu sendiri (bukan
 // hardcode array), karena pipeline sekarang configurable per tenant.
