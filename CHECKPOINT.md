@@ -513,3 +513,34 @@ Yang belum kejawab (buat sesi berikutnya, TIDAK PERLU DIJAWAB SEKARANG):
 - Data training buat chatbot -- dari mana, gimana update-nya kalau ada info baru (harga berubah, dll).
 - Integrasi ke channel customer yang dipakai (WhatsApp Business, dll) -- apa perlu koneksi API khusus.
 - Kapan modul ini mulai dikerjain -- jelas di luar fokus utama sekarang (produksi fashion).
+
+===================================================================
+66. Roadmap Ekspansi — Penyempurnaan Proyek dengan Modul Pelengkap dari Referensi LTOS (9 Agustus 2026)
+===================================================================
+Status: PETA JANGKA PANJANG, bukan next steps aktif. Fondasi produksi internal yang sudah dibangun (gudang->cutting->jahit->qc->finishing->shipped, event-sourcing, anti-kecurangan) TETAP jadi inti sistem dan TIDAK diubah -- modul-modul ini menyempurnakan sistem jadi lebih lengkap, bukan menggantikan arah yang sudah ada.
+
+Referensi: dokumen "Strategi Menjual LTOS" (dibandingkan 9 Agustus 2026) -- LTOS adalah OS tailor lengkap dari lead masuk sampai repeat order, sementara proyek Teja fokus di bagian produksi internal saja. Beberapa modul LTOS relevan untuk melengkapi proyek Teja.
+
+Modul pelengkap yang dipertimbangkan (urutan prioritas berdasarkan kedekatan dengan fondasi yang sudah ada -- BUKAN keputusan final, masih bisa berubah):
+
+1. Customer Journey Portal -- link publik (tanpa login) untuk pelanggan lacak status pesanan sendiri. Data dari production_events sudah tersedia, tinggal dibuat endpoint publik + tampilan.
+2. Decision Center -- deteksi bottleneck/SLA telat otomatis + rekomendasi actionable ke owner. Data dari gap_status dan production_events sudah tersedia.
+3. Master Data Center & Business Rules configurable -- owner atur aturan bisnis sendiri tanpa developer. Nyambung ke keputusan stage_order dinamis (bagian 61).
+4. Quotation & Price Estimation Engine -- hitung estimasi harga otomatis dari spesifikasi order. Butuh HPP matang dulu (sebagian sudah ada dari bagian 56, reserve_fabric_inventory).
+5. Customer Digital Profile -- profil pelanggan permanen (ukuran, histori order, preferensi). Butuh tabel customers baru.
+6. Appointment Scheduling -- penjadwalan sesi pengukuran/konsultasi.
+7. Fitter App -- konsultasi awal, konfigurator desain, input ukuran tubuh digital. Modul besar, order dimulai dari sini.
+8. AI Render Preview -- preview visual desain pakai foto pelanggan asli. Paling kompleks & ada biaya API AI per generate, realistis paling belakang.
+
+CAKUPAN BISNIS TETAP LUAS, BUKAN TERPAKU KE TAILOR:
+Proyek Teja mengambil modul-modul yang BERGUNA dari referensi LTOS untuk disempurnakan, TAPI tetap dirancang generik dan bisa dipakai di segala bidang fashion -- pabrik konveksi, tailor/bespoke, maupun vendor konveksi -- bukan cuma tailor seperti LTOS. Modul yang sifatnya lebih spesifik ke alur konsultasi personal (Fitter App, appointment scheduling, konfigurator desain) HARUS dirancang OPSIONAL per tenant (konsisten dengan prinsip stage_order dinamis di bagian 61) -- tenant pabrik konveksi besar mungkin tidak butuh modul konsultasi personal sama sekali (order masuk lewat B2B/bulk), sementara tenant tailor butuh modul itu penuh. Setiap modul yang diambil dari LTOS harus dicek dulu: apakah ini relevan untuk SEMUA jenis tenant, atau cuma sebagian -- kalau cuma sebagian, jadi opsional dan tenant yang butuh saja yang mengaktifkan.
+
+CATATAN PENTING: ini peta arah jangka panjang, TIDAK menggantikan next steps aktif sekarang (bagian 57 dst -- endpoint confirm dinamis, scanner.html, lapis 2 ruang diskusi). Next steps aktif tetap jalan duluan sampai selesai, baru mulai dari prioritas 1 di atas.
+
+TAMBAHAN -- LTOS sebagai bahan belajar nyata untuk filosofi (bagian 64):
+Dokumen "Strategi Menjual LTOS" ini juga jadi bahan belajar konkret pertama untuk filosofi 5 rasa (bagian 64) -- bukan cuma sumber modul teknis. Contoh nyata yang bisa dipelajari dari dokumen ini:
+- Rasa Copywriting: kalimat pitch LTOS ("mengubah bisnis tailor tradisional menjadi perusahaan custom fashion modern") -- cara merangkai kalimat yang menjual tapi tetap jujur.
+- Rasa Sales: strategi demo terarah (bagian 3.5 dokumen LTOS) -- cara membangun kepercayaan calon pembeli dengan menunjukkan hal yang sudah matang, bukan asal buka semua.
+- Rasa Marketing: struktur penentuan harga & positioning (3 model bisnis: SaaS/lisensi/jasa) -- cara menyusun tawaran yang jelas ke pasar berbeda.
+
+Filosofi bagian 64 TETAP berlaku penuh dan TIDAK berubah -- dokumen LTOS ini cuma nambah 1 sumber belajar nyata sesuai prinsip "dua arah" yang sudah dicatat (belajar dari luar, dituangkan ke filosofi, filosofi dieksekusi ke platform).
