@@ -447,3 +447,69 @@ Yang belum kejawab (buat sesi berikutnya, TIDAK PERLU DIJAWAB SEKARANG):
 - Bagaimana WebAuthn/fingerprint HP diimplementasikan secara teknis di browser/app.
 - Apakah geofencing radius dan lokasi pabrik dikonfigurasi per tenant.
 - Relasi ke pay_type (bagian 62) -- apakah absensi ini hanya relevan untuk staff bulanan, atau semua tipe.
+
+===================================================================
+64. FILOSOFI PRODUK — Wajib Diterapkan Nyata di Setiap Langkah (9 Agustus 2026)
+===================================================================
+Status: PRINSIP PERMANEN, bukan fitur/ide biasa. Berlaku untuk SEMUA pengembangan ke depan, dicek di setiap step-by-step (bukan cuma diingat, tapi harus kelihatan wujud nyatanya di kode/UI/teks).
+
+Platform TIDAK punya departemen marketing, sales, copywriter, atau CS secara langsung -- tapi setiap sudut platform harus TERASA seolah-olah ada 5 "rasa" ini, dengan wujud konkret masing-masing:
+
+1. Rasa Copywriting -- cara platform "ngomong".
+   Wujud nyata: semua teks (notifikasi, tombol, pesan error) ditulis kaya manusia ngomong. Contoh: bukan "Error: submission failed" tapi "Waduh, gagal kekirim. Coba cek koneksi lo dan ulangi ya."
+
+2. Rasa Sales -- cara platform bikin orang PERCAYA.
+   Wujud nyata: dashboard/tampilan yang nunjukin bukti nyata kejujuran sistem -- riwayat lengkap barang dari gudang sampai kirim, foto bukti kelihatan langsung, bukan disembunyiin di log teknis.
+
+3. Rasa Marketing -- cara platform nunjukkin dirinya.
+   Wujud nyata: gaya bahasa dan visual konsisten di semua fitur (nama tombol, warna, istilah -- ga campur aduk), data ditampilkan sebagai cerita/progress yang jelas (contoh: dashboard "barang siap kirim"), bukan tabel angka mentah.
+
+4. Rasa Talent/Penghargaan -- cara platform menghargai orang di baliknya.
+   Wujud nyata: QR kode detail yang bawa nama staff pengerjanya -- bukan cuma buat kontrol/anti-kecurangan, tapi juga ditampilin sebagai kredit/pengakuan kerja staff itu (misal staff bisa lihat "barang yang gue kerjain").
+
+5. Rasa Customer Service -- cara platform bantu orang PAS ADA MASALAH.
+   Wujud nyata:
+   - Pesan error selalu kasih tau langkah selanjutnya, bukan cuma bilang gagal.
+   - Fitur yang berpotensi bikin bingung (lock/unlock order, confirm submission, ruang diskusi) dikasih penjelasan singkat di tempat.
+   - Kalau ada kesalahan manusia (misal keliru pilih stage), ada jalan yang jelas buat benerin -- undo yang aman, atau minimal panduan "begini cara benerinnya".
+
+SIFAT & CARA EKSEKUSI FILOSOFI INI:
+
+Filosofi 5 rasa ini BUKAN dokumen final, tapi wadah belajar yang hidup dan DUA ARAH. Teja belajar dunia marketing/sales/CS/copywriting bukan cuma dari luar, tapi juga DARI platform ini sendiri -- tiap kali filosofi ini dieksekusi nyata, itu jadi bahan belajar buat Teja juga, bukan cuma output buat platform.
+
+Cara eksekusi (WAJIB, bukan sekadar checklist di akhir): setiap kali Claude mengerjakan sesuatu yang menyentuh salah satu dari 5 rasa ini -- nulis teks, bikin tampilan, desain alur -- Claude BENERAN MASUK ke cara mikir dan insting kreatif peran itu, bukan cuma nempelin filosofi sebagai label. Contoh:
+- Nulis pesan error -> mikir kaya copywriter beneran (pilih kata, ritme kalimat, nada).
+- Desain dashboard -> mikir kaya orang marketing (progress produksi "bercerita", bukan cuma tabel data).
+- Desain alur bantu customer/staff kebingungan -> mikir kaya orang CS beneran (empati, langkah jelas).
+
+Alurnya dua arah dan terus berputar: Teja belajar dari luar -> dituangkan ke filosofi ini -> filosofi dieksekusi nyata ke platform -> proses eksekusi itu sendiri jadi bahan belajar balik buat Teja -> filosofi makin kaya. Bukan filosofi statis yang ditulis sekali lalu berhenti.
+
+ATURAN WAJIB: setiap kali mengerjakan fitur baru (endpoint, UI, notifikasi, dashboard, pesan error, apapun) -- cek balik ke 5 filosofi ini SEBELUM dianggap selesai. Tidak harus semua 5 diterapkan sekaligus di 1 fitur, tapi harus ada minimal 1-2 yang kelihatan wujud nyatanya.
+
+CATATAN PENERAPAN KE KODE LAMA: filosofi ini WAJIB untuk kerjaan baru mulai sekarang. Kode/teks/UI yang sudah ada sebelumnya TIDAK perlu dirombak buru-buru -- masuk daftar "polish pass" yang dikerjakan belakangan setelah semua next steps aktif (bagian 57 dst) selesai, bukan mendesak dan bukan diabaikan.
+
+===================================================================
+65. Ide Awal — Bantuan AI untuk Kerjaan Non-Produksi: Copywriter & Admin Sales/CS (9 Agustus 2026, BELUM DIRISET MATANG)
+===================================================================
+Status: Muncul dari diskusi filosofi produk (bagian 64) -- khususnya wujud nyata dari Rasa Copywriting dan Rasa Customer Service. Dua ide AI ini beda scope tapi 1 tema besar: AI bantu kerjaan yang biasanya butuh staff manusia di luar alur produksi.
+
+Ide 1 -- AI Copywriter:
+- Fitur kecil: tombol "generate caption/deskripsi" yang manggil AI, ambil data produk yang udah ada di sistem platform, otomatis bikin teks jualan.
+- Ga butuh staff copywriter manusia -- AI langsung gantiin kebutuhan itu.
+- Modul terpisah dari sistem staff/produksi yang sekarang.
+
+Ide 2 -- AI Admin Sales/CS Chatbot:
+- AI dilatih Teja sendiri, jawab customer 24 jam nonstop -- pertanyaan umum & standar (harga, waktu pengerjaan, dll).
+- Kalau customer minta ngomong langsung sama manusia, atau ada komplain serius (misal kualitas jahitan jelek), otomatis dialihkan/notifikasi ke admin manusia -- AI jadi lapisan pertama, bukan pengganti total.
+- Ini wujud nyata dari filosofi Rasa Customer Service (bagian 64) -- bantu customer kapan aja, ga harus nunggu jam kerja admin.
+
+KONTEKS PENTING -- posisi staff non-produksi (marketing/sales/copywriter) di platform:
+- Kalau perannya diisi manusia (misal admin sales beneran), mereka tetap masuk tabel staff seperti staff produksi lainnya -- punya pay_type (bagian 62) dan absensi (bagian 63) yang sama, TAPI tidak punya assigned_stage karena tidak ikut alur produksi (tidak pernah muncul di scanner.html atau confirm-berantai).
+- Kalau perannya diisi AI (seperti copywriter/chatbot di atas), TIDAK perlu masuk tabel staff sama sekali -- cukup jadi modul/fitur terpisah yang manggil AI.
+- Kerjaan sehari-hari peran non-produksi (chat customer, bikin konten) TIDAK perlu dibikinin fitur khusus di platform -- bisa pakai tool luar (WhatsApp Business, Canva, dll), platform cukup nyatet mereka untuk urusan gaji & absen kalau memang staff manusia.
+
+Yang belum kejawab (buat sesi berikutnya, TIDAK PERLU DIJAWAB SEKARANG):
+- Platform AI/model apa yang dipakai buat chatbot dan generate caption.
+- Data training buat chatbot -- dari mana, gimana update-nya kalau ada info baru (harga berubah, dll).
+- Integrasi ke channel customer yang dipakai (WhatsApp Business, dll) -- apa perlu koneksi API khusus.
+- Kapan modul ini mulai dikerjain -- jelas di luar fokus utama sekarang (produksi fashion).
