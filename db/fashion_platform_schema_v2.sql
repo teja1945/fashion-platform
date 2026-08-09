@@ -86,7 +86,7 @@ create policy tenant_isolation on tenant_billing
 create table if not exists tenant_pipeline_stages (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references tenants(id) on delete cascade,
-  stage_key text not null,               -- e.g. 'gudang','cutting','jahit','qc','packing'
+  stage_key text not null,               -- e.g. 'gudang','cutting','jahit','qc','finishing'
   stage_order int not null,
   is_gudang_stage boolean not null default false,  -- bagian 6
   is_optional boolean not null default false,      -- gudang opsional per tenant
