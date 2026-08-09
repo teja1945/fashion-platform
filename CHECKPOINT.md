@@ -383,3 +383,67 @@ Yang belum kejawab (buat sesi berikutnya):
 - Struktur tabel suppliers — kolom apa aja (nama, kontak, alamat, dll).
 - Relasi ke record penerimaan kain (bagian 58) dan ke fabric_inventory/inventory_ledger.
 - Format konkret dashboard evaluasi supplier — data apa yang ditampilin, atau ini fitur terpisah buat nanti.
+
+===================================================================
+60. Temuan — scanner.html Belum Sinkron dengan Pipeline Final (9 Agustus 2026)
+===================================================================
+Status: Ditemukan saat audit rename packing->finishing. scanner.html (di-serve via route /scanner.html di server.js, masih aktif) berisi daftar STAGES yang beda total dari pipeline final di bagian 57.
+
+Isi STAGES di scanner.html (lama, commit 7 Agustus, kemungkinan ikut ter-bundle sebagai file test/debug lama): consultation_styling -> cutting -> sewing -> qc -> finishing -> packing -> shipping (7 stage).
+
+Pipeline final yang disepakati (bagian 57): gudang -> cutting -> jahit -> qc -> finishing -> shipped (6 stage).
+
+Gap yang perlu diputuskan sebelum rombak:
+- Stage gudang sama sekali tidak ada di scanner.html -- perlu ditambahkan.
+- consultation_styling ada di scanner.html tapi tidak ada di pipeline final -- masih dipakai atau dibuang?
+- Penamaan beda: sewing vs jahit, shipping vs shipped.
+- scanner.html versi lama punya finishing DAN packing sebagai 2 stage terpisah (finishing = beresin benang/setrika/kancing, packing = bungkus). Sudah dibahas (lihat bagian 61) -- kemungkinan jadi opsional per tenant, bukan wajib 2 stage.
+- MANDATORY_PHOTO_STAGES di scanner.html juga perlu disesuaikan ulang begitu daftar stage final ditentukan.
+
+BELUM DIROMBAK -- menunggu keputusan gap di atas + integrasi dengan ide stage dinamis (bagian 61).
+
+===================================================================
+61. Keputusan — Endpoint Confirm Dinamis Mengikuti stage_order per Tenant (9 Agustus 2026)
+===================================================================
+Status: Keputusan desain, terkait langsung dengan rewrite endpoint confirm (next steps aktif bagian 57).
+
+Latar belakang: muncul dari pertanyaan apakah stage finishing dan packing bisa dipisah opsional per tenant (pabrik besar mungkin butuh keduanya terpisah, tailor kecil cukup gabung jadi 1 stage finishing).
+
+Keputusan: endpoint confirm dibuat DINAMIS, bukan hardcode nama-nama stage. Caranya: baca stage_order tenant tersebut dari tenant_pipeline_stages, cari record dengan stage_order berikutnya dari stage yang sedang dikonfirmasi -- itu yang jadi confirmer. Tidak peduli nama stage-nya apa atau berapa banyak stage yang dimiliki tenant tersebut.
+
+Alasan: tenant_pipeline_stages sudah didesain per-tenant dari awal (tiap tenant punya baris sendiri), jadi tenant pabrik besar bisa punya stage finishing DAN packing terpisah (2 baris, stage_order berurutan), sementara tenant tailor kecil cukup 1 baris finishing saja -- tanpa perlu tulis kode khusus per tenant.
+
+Konsekuensi: pas bikin tenant baru, stage_order harus lengkap dan berurutan tanpa gap -- perlu validasi saat insert tenant_pipeline_stages supaya rantai konfirmasi tidak nyasar.
+
+BELUM DIRISET DETAIL -- implementasi konkret endpoint confirm dengan pola ini belum ditulis (masih next steps aktif bagian 57).
+
+===================================================================
+62. Ide Awal — Tipe Bayaran Staff Fleksibel per Tenant: Harian / Piece-rate / Bulanan (9 Agustus 2026, BELUM DIRISET MATANG)
+===================================================================
+Status: Prinsip sama dengan bagian 61 (fleksibilitas per tenant), diterapkan ke cara bayar staff, bukan ke urutan stage.
+
+Kebutuhan: tenant bisa pilih staff-nya dibayar harian, piece-rate (borongan, sudah ada di deskripsi awal proyek), atau bulanan (UMR). Scan QR / pencatatan produksi (production_events) tetap jalan sama untuk semua tipe bayaran -- datanya dipakai untuk tracking produktivitas, bukan cuma untuk hitung gaji.
+
+Yang belum kejawab (buat sesi berikutnya, TIDAK PERLU DIJAWAB SEKARANG):
+- Kolom pay_type di tabel staff (harian/piece_rate/bulanan) -- atau tabel terpisah?
+- Untuk staff bulanan, data scan dipakai untuk apa saja (evaluasi kinerja? bukan penentu gaji langsung)?
+- Bagaimana relasi ke fitur piece-rate pay yang sudah ada di deskripsi awal proyek -- apakah piece-rate jadi salah satu opsi pay_type ini?
+
+===================================================================
+63. Ide Awal — Absensi & Lembur dengan Anti-Kecurangan via HP (9 Agustus 2026, BELUM DIRISET MATANG)
+===================================================================
+Status: Fokus utama untuk staff bulanan (UMR), tapi berlaku juga untuk harian/borongan yang lembur.
+
+Kebutuhan: catatan jam kerja (misal 08.00-17.00) dan jam lembur per staff, tercatat di akhir bulan, tanpa bisa diakalin (titip absen, edit jam sendiri, dll) -- tanpa perlu alat fingerprint fisik terpisah, cukup dari HP.
+
+Opsi kombinasi anti-kecurangan yang dibahas (didiskusikan, belum diputuskan final):
+- Fingerprint/Face ID bawaan HP staff (via WebAuthn atau app) -- verifikasi identitas tidak bisa dititipkan ke orang lain.
+- GPS geofencing -- clock-in/out hanya diterima kalau lokasi HP dalam radius pabrik.
+- Selfie wajib otomatis saat clock-in/out (bukan upload dari galeri) -- konsisten dengan prinsip foto wajib yang sudah diterapkan di submission stage.
+- Timestamp dari server, bukan dari jam HP staff -- supaya staff tidak bisa mengubah waktu sendiri.
+
+Yang belum kejawab (buat sesi berikutnya, TIDAK PERLU DIJAWAB SEKARANG):
+- Struktur tabel untuk clock-in/out dan lembur (nama tabel, kolom).
+- Bagaimana WebAuthn/fingerprint HP diimplementasikan secara teknis di browser/app.
+- Apakah geofencing radius dan lokasi pabrik dikonfigurasi per tenant.
+- Relasi ke pay_type (bagian 62) -- apakah absensi ini hanya relevan untuk staff bulanan, atau semua tipe.
