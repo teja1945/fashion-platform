@@ -443,6 +443,77 @@ app.post("/v1/lock/force-unlock", tenantResolver, requireApiKey, requireStaffSes
 });
 
 // =====================================================================
+// STAGE QUANTITY SUBMISSIONS -- QC 2-pihak (bagian 57)
+// Staff submit qty hasil kerja di stage-nya. Boleh berkali-kali per
+// job+stage (menutup kasus lupa setor / nemu belakangan). Tidak
+// otomatis majuin stage -- itu terjadi saat QC confirm (endpoint lain).
+// =====================================================================
+app.post("/v1/stage-submissions", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
+  const { production_job_id, stage_key, qty_submitted } = req.body || {};
+  const staffId = req.staffSession.staffId;
+
+  if (!production_job_id || !stage_key || qty_submitted === undefined) {
+    return res.status(400).json({ error: "production_job_id, stage_key, dan qty_submitted wajib diisi" });
+  }
+  const qty = Number(qty_submitted);
+  if (!Number.isFinite(qty) || qty <= 0) {
+    return res.status(400).json({ error: "qty_submitted harus angka lebih besar dari 0" });
+  }
+
+  const client = await pool.connect();
+  try {
+    const result = await withTenant(client, req.tenantId, async (c) => {
+      const staffCheck = await c.query(
+        `SELECT id, assigned_stage FROM staff WHERE id = $1 AND is_active = true`,
+        [staffId]
+      );
+      if (staffCheck.rows.length === 0) {
+        return { httpStatus: 403, body: { error: "staff tidak ditemukan atau tidak aktif" } };
+      }
+      if (staffCheck.rows[0].assigned_stage !== stage_key) {
+        return {
+          httpStatus: 403,
+          body: { error: "staff ini tidak ditugaskan untuk stage tersebut", assigned_stage: staffCheck.rows[0].assigned_stage },
+        };
+      }
+
+      const jobCheck = await c.query(
+        `SELECT current_stage, pipeline_snapshot FROM production_jobs WHERE id = $1`,
+        [production_job_id]
+      );
+      if (jobCheck.rows.length === 0) {
+        return { httpStatus: 404, body: { error: "production job tidak ditemukan" } };
+      }
+      const stageKeys = (jobCheck.rows[0].pipeline_snapshot || []).map((s) => s.stage_key);
+      if (!stageKeys.includes(stage_key)) {
+        return { httpStatus: 400, body: { error: "stage_key tidak dikenal di pipeline job ini", allowed: stageKeys } };
+      }
+      if (jobCheck.rows[0].current_stage !== stage_key) {
+        return {
+          httpStatus: 403,
+          body: { error: "stage_key tidak cocok dengan stage job saat ini", job_stage: jobCheck.rows[0].current_stage, sent_stage: stage_key },
+        };
+      }
+
+      const insertRes = await c.query(
+        `INSERT INTO stage_quantity_submissions
+           (tenant_id, production_job_id, stage_key, qty_submitted, submitted_by_staff_id)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, status, submitted_at`,
+        [req.tenantId, production_job_id, stage_key, qty, staffId]
+      );
+      return { httpStatus: 201, body: insertRes.rows[0] };
+    });
+    res.status(result.httpStatus).json(result.body);
+  } catch (err) {
+    console.error("stage-submissions POST error:", err);
+    res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
+  }
+});
+
+// =====================================================================
 // PRODUCTION STAGE PHOTOS
 // Stage divalidasi terhadap pipeline_snapshot job itu sendiri (bukan
 // hardcode array), karena pipeline sekarang configurable per tenant.
