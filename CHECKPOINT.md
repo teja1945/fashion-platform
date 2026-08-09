@@ -348,3 +348,38 @@ Ide baru (9 Agustus 2026) -- bukti foto finishing, QR kode detail, dashboard bar
 - QR kode yang menandai barang selesai per-stage harus membawa detail lengkap: atas nama staff siapa yang mengerjakan, ukuran/spesifikasi barang, dll -- bukan cuma kode kosong buat scan pass/fail. Ini juga menutup celah kecurangan karena ada jejak siapa yang bertanggung jawab per item.
 - Dashboard "barang selesai dan siap kirim" -- daftar barang yang sudah lolos finishing dan dicek gudang, menunggu keputusan shipped, sebagai bagian dari inventory/stok barang jadi.
 Semua di atas dicatat apa adanya, belum diriset detail teknis (struktur QR, isi payload, desain dashboard).
+
+===================================================================
+58. Ide Awal — Diskusi Gudang di Awal Siklus untuk Kain Cacat/Reject (9 Agustus 2026, BELUM DIRISET MATANG)
+===================================================================
+Status: Tambahan dari desain ruang diskusi di bagian 57. Gudang butuh 2 titik diskusi, bukan cuma 1.
+
+Titik 1 — di AWAL siklus (baru):
+- Saat gudang terima kain dari supplier, sebelum diserahkan ke cutting.
+- Kalau kain cacat atau kurang (misal order butuh 1000 pcs, kain cuma cukup 900), gudang lapor.
+- Tidak ada opsi diskusi sama staff lain dulu — langsung ke owner/staff kepercayaan, karena ini soal bahan dari pihak luar (supplier).
+- Wajib foto bukti kalau ada masalah.
+- Selalu ada record, bukan cuma pas ada masalah — biar ada jejak lengkap buat evaluasi (termasuk evaluasi supplier, lihat bagian 59). Record minimal: tanggal terima, supplier, qty diminta vs diterima, status (OK/CACAT/KURANG), foto (wajib kalau bukan OK).
+- Yang boleh bikin laporan ini cuma gudang.
+
+Titik 2 — di AKHIR siklus (sudah didesain sebelumnya, bagian 57):
+- Gudang cek submission dari finishing. Boleh pilih diskusi biasa dulu, atau langsung panggil owner kalau kasusnya udah jelas parah.
+
+Ngaruh ke stok:
+- Yang masuk ke fabric_inventory adalah qty yang BENERAN diterima (bukan qty yang dipesan) — kalau kain kurang, stok yang tercatat sesuai kenyataan dari awal.
+
+Yang belum kejawab (buat sesi berikutnya):
+- Relasi record penerimaan kain ke suppliers (bagian 59), dan ke fabric_inventory/inventory_ledger.
+
+===================================================================
+59. Ide Awal — Manajemen Supplier (9 Agustus 2026, BELUM DIRISET MATANG)
+===================================================================
+Status: Muncul dari kebutuhan bagian 58 (laporan penerimaan kain butuh identitas supplier buat evaluasi jangka panjang). Diputuskan bikin tabel resmi, bukan sekadar kolom teks bebas — prinsip proyek: perbaiki kekurangan sekecil apapun dari awal, demi sistem yang aman dan nyaman jangka panjang.
+
+Kebutuhan dasar:
+- Tabel suppliers sendiri, bisa dipakai buat evaluasi performa tiap supplier dari waktu ke waktu (tingkat cacat, tingkat kekurangan kirim, dll).
+
+Yang belum kejawab (buat sesi berikutnya):
+- Struktur tabel suppliers — kolom apa aja (nama, kontak, alamat, dll).
+- Relasi ke record penerimaan kain (bagian 58) dan ke fabric_inventory/inventory_ledger.
+- Format konkret dashboard evaluasi supplier — data apa yang ditampilin, atau ini fitur terpisah buat nanti.
