@@ -231,3 +231,9 @@ Testing (via Supabase MCP untuk deploy function, psql VPS untuk test):
 - Security advisor Supabase: 0 warning setelah deploy
 
 Next: function ini belum dipanggil dari endpoint server.js manapun -- masih murni di level database. Integrasi ke endpoint (misal saat order masuk produksi, butuh bahan) belum dikerjakan, jadi next step terpisah kalau mau dipakai di alur bisnis nyata.
+
+===================================================================
+Ide baru (9 Agustus 2026) -- dicatat apa adanya, belum diriset
+===================================================================
+- Multi-bahasa (i18n) per tenant: platform harus support banyak bahasa karena target user tidak cuma Indonesia, bisa luar negeri juga. Scope: (1) UI -- tombol, label, menu, dll, (2) data yang tenant input sendiri -- misal nama produk -- juga perlu bisa multi-bahasa, bukan cuma UI statis. Belum diriset detail (struktur data, default bahasa, terjemahan otomatis vs manual).
+- Custom nada dering notifikasi per jenis: user (staff/admin/owner) bisa atur nada dering sendiri untuk tiap jenis notifikasi in-app platform (job baru, QC, discrepancy, eskalasi, dll) -- bukan cuma satu nada generik buat semua. Belum diriset detail.
