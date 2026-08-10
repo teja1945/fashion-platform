@@ -586,3 +586,14 @@ Status: Murni observasi Claude dari pola proyek yang sudah ada (event-sourcing, 
 Yang belum kejawab (buat sesi berikutnya, TIDAK PERLU DIJAWAB SEKARANG):
 - Prioritas relatif ke-5 ide ini dibanding next steps aktif bagian 57.
 - Detail implementasi masing-masing (skema tabel audit log, threshold EXIF, dll).
+
+**Key learning baru (10 Agustus 2026): Cara verifikasi data via psql harus SET app.tenant_id dulu**
+
+RLS di tabel-tabel utama (`production_jobs`, `tenant_pipeline_stages`, dll) pakai policy `tenant_isolation` berbasis session variable `app.tenant_id` — BUKAN `app.current_tenant_id`. Kalau connect psql langsung pakai `app_user` tanpa `SET app.tenant_id = '...'` dulu, SEMUA query bakal return 0 rows walau datanya utuh — ini BUKAN indikasi data hilang, itu RLS bekerja sesuai desain (app_user tidak bisa bypass tanpa context tenant).
+
+Tabel `tenants` sendiri beda lagi: policy `tenants_service_only` cuma izinkan `service_role`, jadi `app_user` gak akan pernah bisa SELECT dari tabel `tenants` langsung lewat psql sama sekali, walau context tenant_id sudah di-SET.
+
+Cara verifikasi data manual yang benar:
+psql "$DATABASE_URL" -c "SET app.tenant_id = '<uuid-tenant>'; SELECT ... ;"
+
+SET harus digabung dalam satu perintah -c yang sama dengan query-nya (koneksi psql per -c terpisah, context tidak nempel ke command berikutnya).
