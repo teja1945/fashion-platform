@@ -544,3 +544,43 @@ Dokumen "Strategi Menjual LTOS" ini juga jadi bahan belajar konkret pertama untu
 - Rasa Marketing: struktur penentuan harga & positioning (3 model bisnis: SaaS/lisensi/jasa) -- cara menyusun tawaran yang jelas ke pasar berbeda.
 
 Filosofi bagian 64 TETAP berlaku penuh dan TIDAK berubah -- dokumen LTOS ini cuma nambah 1 sumber belajar nyata sesuai prinsip "dua arah" yang sudah dicatat (belajar dari luar, dituangkan ke filosofi, filosofi dieksekusi ke platform).
+
+**67. Ide Awal — Adopsi dari Referensi BTOS: Visual Mannequin, Decision Center Actionable, Sewa Modular (9 Agustus 2026, BELUM DIRISET MATANG)**
+
+Status: Muncul dari audit dokumen "Strategi Menjual BTOS" (Bespoke Tailor Operating System, proyek Deka — **koreksi nama dari catatan sebelumnya di bagian 66 yang salah sebut "LTOS"**, LTOS itu basis kode lama Teja sendiri, beda produk). BTOS relevan sebagai referensi karena sama-sama platform tailor/fashion custom, tapi arsitekturnya single-tenant (beda dari platform Teja yang multi-tenant dari awal).
+
+Ide yang worth diadopsi/diriset lebih lanjut:
+
+1. **Visual Mannequin Interaktif** — model 3D humanoid untuk input ukuran tubuh pelanggan, dengan highlight garis+warna+label mengambang real-time di titik yang sedang diukur. Relevan untuk modul Fitter App (roadmap bagian 66, poin 7) kalau nanti dikerjakan — mengurangi kesalahan input dibanding form angka biasa.
+
+2. **Decision Center dengan rekomendasi actionable** — bukan cuma dashboard angka mentah, tapi deteksi bottleneck/SLA lewat + kasih rekomendasi konkret "apa yang harus dilakukan hari ini". Ini sudah ada di roadmap bagian 66 poin 2, tapi perlu dipertegas nanti: outputnya harus actionable, bukan cuma laporan pasif.
+
+3. **Model harga "sewa rumah, listrik terpisah"** (akses aplikasi = flat monthly, biaya AI/token/pemakaian = pay-per-use terpisah) — relevan ke ide lama bagian 7 poin G (sistem sewa modular per fitur). Kalau platform Teja nanti ditawarkan ke tenant luar, pola pemisahan biaya ini bisa diadopsi.
+
+4. **Entry Point / trial akses terbatas** (akses limited durasi + kuota, sebelum upgrade ke akses penuh) — pola onboarding buat nurunin barrier closing tenant baru, kalau nanti platform Teja dijual/disewakan ke luar.
+
+Pelajaran dari kegagalan BTOS (bukan buat diadopsi, tapi jadi validasi arah yang sudah benar & bahan riset lanjut):
+- BTOS reservasi stok otomatis mereka "wired tapi dormant" (UI ada, fungsi gak jalan) — `reserve_fabric_inventory` (bagian 56) sudah lebih matang: atomik, row lock, tervalidasi tuntas. Bukti prinsip "no shortcuts" menghasilkan sistem lebih solid.
+- BTOS gak punya profit margin per order, gak ada Purchase Order/riwayat pembelian supplier, gak ada waste tracking — tiga ini langsung relevan buat riset lanjut bagian 58 (laporan penerimaan kain) & 59 (manajemen supplier) yang lagi dirancang, karena BTOS belum sampai situ juga.
+
+Yang belum kejawab (buat sesi berikutnya, TIDAK PERLU DIJAWAB SEKARANG):
+- Detail teknis Visual Mannequin (library 3D apa, integrasi ke Fitter App).
+- Struktur data buat memisahkan billing "akses" vs "pemakaian" kalau model sewa modular ini jadi dipakai.
+
+**68. Ide Awal — Saran Claude untuk Penyempurnaan (9 Agustus 2026, BELUM DIRISET MATANG)**
+
+Status: Murni observasi Claude dari pola proyek yang sudah ada (event-sourcing, anti-kecurangan berlapis, prinsip no-shortcuts) — bukan dari referensi eksternal.
+
+1. **Restore drill, bukan cuma backup verify** — backup otomatis (bagian 5) baru diverifikasi lewat cek file `.sql.gz` tidak corrupt, belum pernah benar-benar di-restore ke instance kosong untuk buktiin datanya utuh & app bisa jalan dari situ. Worth jadi next step keamanan: restore test sekali ke DB terpisah.
+
+2. **Integritas foto bukti** — memperkuat rencana wajib-foto di tiap submission (termasuk finishing, sudah dicatat sebelumnya). Opsi tambahan: cek timestamp EXIF vs waktu submission (beda jauh = curiga), atau perceptual hash buat deteksi foto yang sama dipakai ulang di submission berbeda.
+
+3. **Audit log admin actions terpisah dari production_events** — aksi sensitif (force-unlock, revoke staff, eskalasi manual) belum ketangkep eksplisit sebagai audit trail administratif — beda scope dari production_events yang fokus alur produksi. Nyambung ke checklist keamanan bagian 6 ("audit log lengkap ke DB" masih belum ada).
+
+4. **Offline-first untuk scanner.html di lantai produksi** — kalau dipakai langsung di pabrik dengan koneksi wifi tidak stabil, queue lokal (localStorage/IndexedDB) yang nyimpen submission dulu lalu sync begitu online lagi, daripada staf gagal submit pas sinyal jelek.
+
+5. **Formula skor evaluasi supplier (awal)** — mengisi bagian belum-terjawab di bagian 59. Titik mulai: skor = (1 - tingkat_cacat) × (1 - tingkat_kekurangan_kirim), dihitung per periode dari data laporan gudang di awal siklus (bagian 58). Bukan final, tinggal diriset lanjut.
+
+Yang belum kejawab (buat sesi berikutnya, TIDAK PERLU DIJAWAB SEKARANG):
+- Prioritas relatif ke-5 ide ini dibanding next steps aktif bagian 57.
+- Detail implementasi masing-masing (skema tabel audit log, threshold EXIF, dll).
