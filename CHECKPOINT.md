@@ -112,6 +112,7 @@ I. 2FA login + subdomain custom pilihan tenant sendiri saat onboarding — archi
 J. Automation "AI mikir + AI eksekusi" untuk kerja rutin (proyek terpisah, Claude Code jadi opsi utama begitu billing beres) — archive bagian 28
 K. Adopsi dari referensi BTOS: visual mannequin 3D, decision center actionable, model sewa modular "akses vs pemakaian", entry point trial terbatas — bagian 67
 L. Saran hardening internal: restore drill, integritas foto (EXIF/perceptual hash), audit log admin terpisah, offline-first scanner, formula skor supplier — bagian 68
+M. Gudang final terhubung ke lokasi rak & data siap kirim (dicatat saat submission finishing dicek gudang) — bagian 69
 
 ===================================================================
 8. TOOL DEVELOPMENT — STATUS
