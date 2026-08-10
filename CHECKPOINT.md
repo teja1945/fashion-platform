@@ -565,3 +565,15 @@ Cara verifikasi data manual yang benar:
 psql "$DATABASE_URL" -c "SET app.tenant_id = '<uuid-tenant>'; SELECT ... ;"
 
 SET harus digabung dalam satu perintah -c yang sama dengan query-nya (koneksi psql per -c terpisah, context tidak nempel ke command berikutnya).
+
+**69. Ide Awal — Gudang Final Terhubung ke Lokasi Rak & Data Siap Kirim (10 Agustus 2026, BELUM DIRISET MATANG)**
+
+Status: Muncul dari diskusi konfirmasi berantai (bagian 57) — peran gudang di akhir siklus (cek submission finishing) bisa diperluas lebih dari sekadar cek qty.
+
+Ide: begitu gudang confirm submission finishing dan qty cocok, sistem sekalian catat lokasi penyimpanan barang jadi itu (rak/area berapa) — supaya nanti pas mau kirim, tim gak bingung/cari-cari fisik barangnya di mana. Data ini juga bisa jadi sumber buat dashboard "barang siap kirim" (sudah disinggung di bagian 57 — daftar barang lolos finishing + dicek gudang, menunggu keputusan shipped) dan info ke owner/customer soal status barang.
+
+Kalau qty gak cocok (barang hilang/kurang), itu nyambung ke ruang diskusi otomatis (Lapis 2, bagian 57) — gudang punya opsi diskusi biasa dulu atau langsung panggil owner/staff kepercayaan kalau kasusnya jelas parah.
+
+Yang belum kejawab (buat sesi berikutnya, TIDAK PERLU DIJAWAB SEKARANG):
+- Struktur data lokasi rak (tabel baru? kolom di production_jobs? sistem kode rak seperti apa)
+- Detail hubungan ke dashboard "barang siap kirim" (bagian 57) dan Lapis 2 ruang diskusi
