@@ -110,6 +110,8 @@ G. Fitur level platform: dashboard analytics owner, ruang komplain customer, sis
 H. Login email+password (approval owner, bukan verifikasi email) + kustomisasi dashboard personal per staff — archive bagian 51
 I. 2FA login + subdomain custom pilihan tenant sendiri saat onboarding — archive bagian 53
 J. Automation "AI mikir + AI eksekusi" untuk kerja rutin (proyek terpisah, Claude Code jadi opsi utama begitu billing beres) — archive bagian 28
+K. Adopsi dari referensi BTOS: visual mannequin 3D, decision center actionable, model sewa modular "akses vs pemakaian", entry point trial terbatas — bagian 67
+L. Saran hardening internal: restore drill, integritas foto (EXIF/perceptual hash), audit log admin terpisah, offline-first scanner, formula skor supplier — bagian 68
 
 ===================================================================
 8. TOOL DEVELOPMENT — STATUS
