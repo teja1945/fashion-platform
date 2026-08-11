@@ -514,10 +514,17 @@ app.post("/v1/stage-submissions", tenantResolver, requireApiKey, requireStaffSes
 });
 
 // =====================================================================
-// STAGE QUANTITY SUBMISSIONS -- QC confirm (bagian 57 lanjutan)
-// QC confirm per submission satu-satu (bukan digabung). Kalau qty beda
-// (discrepancy), status jadi DISCREPANCY tapi stage TETAP maju pakai
-// qty_confirmed -- produksi tidak boleh macet menunggu resolusi kasus.
+// STAGE QUANTITY SUBMISSIONS -- confirm dinamis (bagian 57 VERSI FINAL + 61)
+// Confirmer TIDAK hardcode "qc" -- ditentukan dinamis dari stage_order
+// tenant_pipeline_stages: staff di stage_order berikutnya yang berhak
+// confirm. Kalau stage yang disubmit adalah stage kerja TERAKHIR sebelum
+// stage terminal (mis. finishing sebelum shipped), confirmer MEMUTAR
+// BALIK ke stage yang is_gudang_stage = true (bukan lanjut ke terminal,
+// karena stage terminal seperti shipped tidak punya staff/submission).
+// Kalau qty beda (discrepancy), status jadi DISCREPANCY tapi stage TETAP
+// maju pakai qty_confirmed -- produksi tidak boleh macet menunggu
+// resolusi kasus. Ruang diskusi otomatis (Lapis 2) BELUM diimplementasi
+// di sini -- menyusul sebagai fitur terpisah (lihat CHECKPOINT bagian 57).
 // =====================================================================
 app.post("/v1/stage-submissions/:id/confirm", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
   const { id } = req.params;
@@ -543,9 +550,6 @@ app.post("/v1/stage-submissions/:id/confirm", tenantResolver, requireApiKey, req
       if (staffCheck.rows.length === 0) {
         return { httpStatus: 403, body: { error: "staff tidak ditemukan atau tidak aktif" } };
       }
-      if (staffCheck.rows[0].assigned_stage !== "qc") {
-        return { httpStatus: 403, body: { error: "hanya staff QC yang boleh confirm submission" } };
-      }
 
       const subRes = await c.query(
         `SELECT id, production_job_id, stage_key, qty_submitted, status
@@ -558,6 +562,48 @@ app.post("/v1/stage-submissions/:id/confirm", tenantResolver, requireApiKey, req
       const sub = subRes.rows[0];
       if (sub.status !== "PENDING_QC") {
         return { httpStatus: 409, body: { error: `submission sudah berstatus ${sub.status}, tidak bisa confirm ulang` } };
+      }
+
+      const pipelineRes = await c.query(
+        `SELECT stage_key, stage_order, is_gudang_stage
+         FROM tenant_pipeline_stages WHERE tenant_id = $1 ORDER BY stage_order ASC`,
+        [req.tenantId]
+      );
+      const pipeline = pipelineRes.rows;
+      if (pipeline.length === 0) {
+        return { httpStatus: 500, body: { error: "tenant_pipeline_stages kosong untuk tenant ini" } };
+      }
+
+      const currentRow = pipeline.find((s) => s.stage_key === sub.stage_key);
+      if (!currentRow) {
+        return { httpStatus: 500, body: { error: `stage_key submission tidak ditemukan di tenant_pipeline_stages: ${sub.stage_key}` } };
+      }
+
+      const maxOrder = pipeline[pipeline.length - 1].stage_order;
+      const nextOrder = currentRow.stage_order + 1;
+
+      let confirmerRow;
+      if (nextOrder >= maxOrder) {
+        confirmerRow = pipeline.find((s) => s.is_gudang_stage === true);
+        if (!confirmerRow) {
+          return { httpStatus: 500, body: { error: "tidak ada stage dengan is_gudang_stage=true di tenant_pipeline_stages, tidak bisa tentukan confirmer wrap-around" } };
+        }
+      } else {
+        confirmerRow = pipeline.find((s) => s.stage_order === nextOrder);
+        if (!confirmerRow) {
+          return { httpStatus: 500, body: { error: `tidak ada stage dengan stage_order=${nextOrder} di tenant_pipeline_stages` } };
+        }
+      }
+
+      if (staffCheck.rows[0].assigned_stage !== confirmerRow.stage_key) {
+        return {
+          httpStatus: 403,
+          body: {
+            error: "staff ini tidak berhak confirm submission stage tersebut",
+            required_stage: confirmerRow.stage_key,
+            your_stage: staffCheck.rows[0].assigned_stage,
+          },
+        };
       }
 
       const newStatus = Number(sub.qty_submitted) === qtyConf ? "CONFIRMED" : "DISCREPANCY";
