@@ -116,6 +116,7 @@ K. Adopsi dari referensi BTOS: visual mannequin 3D, decision center actionable, 
 L. Saran hardening internal: restore drill, integritas foto (EXIF/perceptual hash), audit log admin terpisah, offline-first scanner, formula skor supplier — bagian 68
 M. Gudang final terhubung ke lokasi rak & data siap kirim (dicatat saat submission finishing dicek gudang) — bagian 69
 N. Adopsi tambahan BTOS: pola "Resume Don't Recreate", sistem antrian/assignment real-time walk-in, AI Vision Judge untuk validasi render — bagian 70
+O. Struktur organisasi pabrik fleksibel: level jabatan (leader/supervisor/manager), PPIC, QC independen, HRD, shift — opsional per tenant — bagian 77
 
 ===================================================================
 8. TOOL DEVELOPMENT — STATUS
@@ -849,3 +850,75 @@ Next steps:
 - Tabel discrepancy_thread_messages (isi ruang diskusi - teks, foto, catatan panggilan, 1 linimasa) - baru bisa dirancang sekarang karena discrepancy_cases.id sudah ada
 - Tabel tenant_trusted_staff (kasus stok kosong bagian 72)
 - Function/endpoint logic resign & reassignment (baru skema tabel yang ada, logic-nya belum jadi kode)
+
+===================================================================
+Update (12 Agustus 2026): Role `owner` ditambahkan ke staff — migration + fix 5 titik otorisasi
+===================================================================
+Status: SELESAI, teruji. Muncul dari diskusi RLS ruang diskusi (bagian 77 di bawah) — dibutuhkan role terpisah dari `admin` buat mediator/owner sistem penengah (bagian 74-76), karena selama ini `staff.role` cuma punya `admin`/`staff`.
+
+Keputusan desain: owner = pemilik tenant, wewenang penuh (setara admin + lebih). Bukan role yang cuma aktif pas darurat — owner tetap punya visibilitas & akses kapan saja (konsisten bagian 71), TAPI juga bisa dipanggil khusus di titik-titik tertentu (tombol panggil owner di ruang diskusi, approval wajib darurat serius bagian 73).
+
+Migration `add_owner_role_to_staff` (via Supabase MCP):
+- `staff_role_check` constraint diupdate: `role` sekarang terima `'owner'`, `'admin'`, `'staff'` (sebelumnya cuma 2 nilai)
+- Staff "Admin Demo" (tenant demo) di-reclassify dari `role='admin'` jadi `role='owner'`
+
+BUG DITEMUKAN & DIPERBAIKI — 5 titik otorisasi hardcode `role === "admin"` di server.js jadi buta ke owner setelah migration:
+1. Baris ~206: `/v1/staff/revoke`
+2. Baris ~225: `/v1/staff/offboard`
+3. Baris ~290: bypass stage-check saat acquire lock job
+4. Baris ~318: query SQL override PIN admin (saat staff coba ambil job baru padahal masih pegang job lain)
+5. Baris ~413: `/v1/lock/force-unlock`
+
+Fix: ditambahkan helper terpusat `isPrivileged(role)` (cek `role` termasuk `["admin","owner"]`) dipakai di 4 titik JS, dan query SQL baris 318 diubah jadi `role IN ('admin','owner')`. Prinsip: satu sumber kebenaran buat "siapa yang privileged", bukan tambal string compare satu-satu di tiap titik — supaya penambahan titik otorisasi baru ke depan otomatis konsisten kalau pakai helper ini.
+
+Testing (curl manual, via Host header demo.fashion-platform.local):
+- Login Admin Demo (PIN 1234) -- berhasil, response konfirmasi `role:"owner"`
+- POST /v1/staff/revoke pakai token Admin Demo (owner) -- `{"ok":true,...}`, BUKAN 403. Membuktikan isPrivileged() beneran jalan, bukan cuma lolos syntax.
+
+pm2 flush + restart dilakukan pasca-fix, log bersih (MaxListenersExceededWarning yang sempat muncul di restart pertama hilang setelah flush -- konsisten pola lama, cuma numpukan log restart, bukan bug aktif).
+
+Commit: b7eae93
+
+PELAJARAN PENTING: kalau nanti ada penambahan/perubahan nilai enum-like di kolom yang dipakai buat otorisasi (role, status, dll), WAJIB grep dulu semua tempat yang cek nilai lama itu secara hardcode sebelum migration dianggap selesai -- migration skema doang TIDAK CUKUP, kode aplikasi yang bergantung ke nilai lama juga harus diaudit. Ini murni ketemu karena ditanya balik sebelum commit ("udah gak ada yang kurang?"), bukan dari proses otomatis manapun.
+
+===================================================================
+77. Ide Awal — Struktur Organisasi Pabrik Fleksibel: Level Jabatan, HRD, PPIC, QC Independen, Shift (12 Agustus 2026, BELUM DIRISET MATANG)
+===================================================================
+Status: Muncul dari kesadaran gap riset -- desain sekarang (owner/admin/staff + stage linear) cukup buat vendor kecil kayak tenant demo, tapi belum merepresentasikan pabrik skala menengah-besar. Prinsip: platform SEDIAKAN semua kemampuan struktur ini, tenant pilih sendiri pakai yang mana sesuai skalanya -- bukan dipaksa semua tenant pakai struktur penuh (konsisten pola stage_order dinamis bagian 61 & modul opsional bagian 66).
+
+Sumber: riset web soal struktur organisasi pabrik garmen/konveksi kecil vs skala menengah-besar (12 Agustus 2026).
+
+1. Level jabatan berjenjang (Operator -> Leader -> Supervisor -> Manager -> Owner)
+Riset nunjukin ada level "Leader/Team Leader" DI ANTARA staf operator biasa dan Supervisor -- leader ngatur kerja harian di lapangan & back-up operator, tapi belum punya wewenang approval kayak supervisor (approval tetap di level Supervisor ke atas).
+
+Rencana struktur data (belum dieksekusi): bukan nambah role baru di staff.role (tetap owner/admin/staff), tapi tambah:
+- Kolom reports_to_staff_id (self-referencing FK ke staff.id, nullable) -- hierarki siapa lapor ke siapa.
+- Kolom org_level (nullable, misal: operator/leader/supervisor/manager) -- level jabatan tanpa ganti role dasar (leader/supervisor tetap role='admin' secara akses, tapi beda org_level buat tampilan/laporan).
+- Tenant kecil: semua staff reports_to = owner langsung, org_level kosong/default operator -- gak kerasa beda dari sekarang.
+- Tenant besar: staff -> leader -> supervisor -> manager -> owner, tiap staff isi reports_to sesuai hierarki nyata mereka.
+
+2. PPIC (Planning) -- departemen yang belum ada sama sekali di desain kita
+PPIC ngatur target produksi, jadwal, alokasi order ke line/tenant pipeline mana. Ini beda dari staf produksi (yang ngerjain) dan beda dari owner (yang putusin bisnis) -- perannya di tengah, planning & koordinasi.
+
+Kemungkinan wujud (belum diputuskan): modul dashboard terpisah yang narik data dari production_jobs+tenant_pipeline_stages buat kasih rekomendasi alokasi/jadwal -- nyambung ke ide lama "Decision Center actionable" (bagian 66 poin 2, bagian 67 poin 2). Staff PPIC sendiri kemungkinan role='admin' dengan org_level='ppic' atau semacamnya (opsional per tenant, tenant kecil skip modul ini total).
+
+3. QC independen di luar alur linear stage
+Desain sekarang: QC cuma 1 stage di tengah pipeline (jahit->qc->finishing). Riset nunjukin sebagian pabrik juga punya checker independen yang audit ULANG di luar alur linear (bukan cuma 1 titik cek, tapi random/periodic audit ke barang yang udah lewat semua stage).
+
+Kemungkinan wujud (belum diputuskan): fitur "audit acak" terpisah dari stage_quantity_submissions biasa -- checker independen bisa random-pick production_job yang udah shipped/mendekati shipped, catat hasil audit sebagai record terpisah (bukan ubah stage/qty asli, event-sourcing tetap dijaga). Opsional per tenant, relevan terutama buat pabrik besar/eksportir yang butuh audit ketat.
+
+4. HRD sebagai modul terpisah
+Tabel baru staff_hr_records (kontrak, cuti, evaluasi kinerja) -- nullable/opsional, gak campur ke tabel staff inti. Tenant kecil skip total, tenant besar yang butuh HRD formal baru pakai.
+
+5. Shift kerja
+Tabel shift_definitions (nama shift, jam mulai-selesai) + kolom shift_id nullable di record absensi (nyambung bagian 63 yang lagi dirancang). Tenant 1-shift cukup 1 baris default.
+
+6. Supervisor sebagai mandat granular, bukan role terpisah
+Pola sama kayak has_full_mandate di tenant_mediators (bagian 74) -- supervisor itu admin/staff biasa yang dikasih permission spesifik (can_approve_minor_reject, can_approve_staff_leave, dll), bukan hardcode role baru.
+
+Prinsip yang dipegang di semua poin di atas: nambah kemampuan (kolom/tabel baru, nullable/opsional), TIDAK mengubah struktur yang udah jalan sekarang. Tenant vendor kecil (demo) tetap jalan normal tanpa kerasa beban tambahan apapun.
+
+Yang belum kejawab (buat sesi berikutnya, TIDAK PERLU DIJAWAB SEKARANG):
+- Prioritas eksekusi relatif ke next steps aktif sekarang (Lapis 2 ruang diskusi masih jalan duluan).
+- Detail teknis org_level (enum tetap vs text bebas per tenant?), struktur modul PPIC, dan mekanisme audit QC independen.
+- Apakah staff_hr_records dan shift ini digarap bareng struktur organisasi ini, atau tetap next steps terpisah sesuai bagian 62-63 yang udah ada.
