@@ -674,3 +674,44 @@ Status: Muncul dari audit dokumen "Strategi Menjual BTOS" versi lebih lengkap (m
 Yang belum kejawab (buat sesi berikutnya, TIDAK PERLU DIJAWAB SEKARANG):
 - Detail teknis implementasi ketiga pola ini kalau nanti masing-masing modul terkait mulai digarap.
 - CATATAN DATA SENSITIF (11 Agustus 2026): IP VPS, UUID tenant/staff demo, dan PIN testing SUDAH DIPINDAH ke CHECKPOINT_LOCAL.md (file lokal di VPS, TIDAK ada di GitHub, masuk .gitignore). Kalau sesi ini butuh nilai asli (mis. untuk curl/SQL/testing), minta Teja jalankan `cat CHECKPOINT_LOCAL.md` di VPS dan paste hasilnya ke chat.
+
+===================================================================
+BAGIAN 71 — DESAIN LAPIS 2: RUANG DISKUSI & SISTEM PENENGAH (rencana, belum diimplementasi)
+===================================================================
+Konsep dasar: Setiap kasus selisih (discrepancy) otomatis punya 1 ruang diskusi (thread), wajib 3 peran:
+1. Penyetor - staff yang setor/kerjain
+2. Penerima - staff yang cek/terima
+3. Penengah - pihak ketiga yang bantu putusin
+
+Sistem penengah (per tenant, fleksibel, TIDAK di-hardcode jumlahnya):
+- Tenant kecil (vendor konveksi): cukup 1-2 penengah + owner
+- Tenant besar (pabrik): bisa beberapa penengah, bisa dibagi per line produksi
+- Tiap penengah WAJIB punya penengah cadangan yang sudah terdata dari awal (bukan tunjuk dadakan pas libur)
+- Antar penengah bisa saling backup, tidak harus pasangan tetap 1-ke-1
+- Yang atur siapa jadi penengah/cadangan: owner, atau kesepakatan yang sudah diatur di awal (bukan real-time)
+- Penengah bisa putus final kalau sudah dikasih mandat penuh dari owner; kasus rumit di luar mandat -> eskalasi ke owner asli
+- Owner bisa langsung gantiin jadi penengah kapan saja kalau perlu
+
+Pengecualian gudang terakhir: kalau discrepancy muncul di titik gudang akhir/serah-terima final dan keliatan serius (barang jelas hilang), boleh langsung eskalasi ke asisten owner/owner, skip step penengah biasa. Kalau masih wajar, tetap diskusi biasa dulu.
+
+Isi ruang diskusi (V1):
+- Teks - wajib
+- Foto - wajib bisa lampir
+- Panggilan (telpon/video call): tombol buka WA langsung ke nomor yang bersangkutan, 1-ke-1 (bukan gabungan otomatis). Riwayat panggilan (siapa, jam, hasil) dicatat MASUK ke linimasa thread yang sama, bukan tabel terpisah.
+
+Di luar scope V1 (visi masa depan):
+- Panggilan/video call gabungan otomatis 3-4 orang sekaligus (WA tidak bisa ini dari sistem luar tanpa bikin grup manual)
+- Video call native di dalam app (butuh WebRTC/provider pihak ketiga - estimasi 2-4 minggu pakai provider seperti Twilio/Agora, atau 2-3 bulan kalau full custom) - worth dipikir ulang kalau nanti ada tenant nyata yang minta eksplisit
+
+===================================================================
+BAGIAN 72 — DESAIN LAPIS 2 (LANJUTAN): LAPORAN STOK/MATERIAL KOSONG DI GUDANG AWAL
+===================================================================
+Beda dari discrepancy quantity: ini bukan soal selisih hasil kerja antar-stage, tapi soal material tidak tersedia dari awal sebelum produksi bisa mulai (kain habis/kurang di gudang bahan awal).
+
+Trigger - kombinasi otomatis + manual:
+- Jalur utama (otomatis): begitu sistem coba reservasi stok buat order baru dan gagal karena stok kurang (pakai reserve_fabric_inventory() yang sudah ada), otomatis buka kasus laporan
+- Jalur tambahan (manual): staff gudang bisa lapor manual kapan saja - buat masalah yang sistem tidak bisa deteksi sendiri (misal kain rusak/basah secara fisik padahal di sistem tercatat "ada stok")
+
+Alur eskalasi: langsung ke staff kepercayaan/asisten owner, atau owner kalau perlu - TIDAK perlu skema 3-pihak (penyetor-penerima-penengah) seperti discrepancy quantity, karena di sini tidak ada "penyetor", cuma "yang nemuin masalah stok".
+
+Staff kepercayaan - fleksibel, tidak dibatasi jumlah: sama seperti sistem penengah, jumlah staff kepercayaan tidak di-hardcode dari sistem - tenant yang tentukan sesuai kebutuhan mereka. Tiap staff kepercayaan tetap wajib punya cadangan yang sudah terdata dari awal (konsisten sama sistem penengah bagian 71).
