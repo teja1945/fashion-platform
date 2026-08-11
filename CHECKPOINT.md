@@ -788,3 +788,30 @@ Logic resign & reassignment kasus aktif:
 9. Mandat penuh (has_full_mandate) TIDAK otomatis ikut pindah ke cadangan - harus dikasih ulang manual oleh owner kalau memang mau dilanjutkan
 10. Notifikasi ke cadangan baru + owner + pihak terlibat kasus, terjamin terkirim (bagian dari transaksi/outbox, bukan optional)
 11. Staff yang resign otomatis is_active=false di tenant_mediators, tidak bisa di-assign kasus baru lagi
+
+===================================================================
+BAGIAN 75 — EKSEKUSI: Tabel tenant_mediators & mediator_backups (12 Agustus 2026)
+===================================================================
+Status: Migration berhasil dijalankan via Supabase MCP (bukan CLI VPS), sesuai SOP DDL bagian 74.
+
+Migration diterapkan:
+- create_tenant_mediators_and_backups
+
+Tabel tenant_mediators dibuat:
+- id, tenant_id (FK tenants), staff_id (FK staff), line_scope (nullable, general kalau kosong), has_full_mandate (default false), is_active (default true), assigned_by (FK staff, nullable), created_at, updated_at
+- RLS aktif, policy tenant_isolation konsisten pola tabel lain (current_setting app.tenant_id)
+- Index di tenant_id dan staff_id
+
+Tabel mediator_backups dibuat:
+- id, tenant_id (FK tenants), mediator_id (FK tenant_mediators), backup_staff_id (FK staff), priority_order, created_at
+- UNIQUE(mediator_id, priority_order) - cegah 2 cadangan punya urutan sama
+- UNIQUE(mediator_id, backup_staff_id) - cegah staff yang sama jadi cadangan dobel untuk penengah yang sama
+- RLS aktif, policy tenant_isolation sama pola
+
+Verifikasi: get_advisors type security -> 0 warning.
+
+Next steps (bagian 74 logic resign & reassignment BELUM diimplementasi sebagai function/endpoint - baru skema tabelnya):
+- Function/endpoint untuk trigger resign (set is_active staff, cari kasus aktif, reassign ke backup sesuai priority_order + round-robin kalau lebih dari 1 kasus, eskalasi ke owner kalau semua backup tidak available)
+- Tabel discrepancy_cases (kasus utama - link ke stage_quantity_submissions yang sudah ada kolom status DISCREPANCY, atau tabel terpisah - perlu diputuskan sesi berikutnya)
+- Tabel discrepancy_thread_messages (isi ruang diskusi - teks, foto, catatan panggilan, 1 linimasa)
+- Tabel tenant_trusted_staff (untuk kasus stok kosong bagian 72, terpisah dari tenant_mediators)
