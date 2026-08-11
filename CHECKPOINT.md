@@ -578,3 +578,51 @@ Kalau qty gak cocok (barang hilang/kurang), itu nyambung ke ruang diskusi otomat
 Yang belum kejawab (buat sesi berikutnya, TIDAK PERLU DIJAWAB SEKARANG):
 - Struktur data lokasi rak (tabel baru? kolom di production_jobs? sistem kode rak seperti apa)
 - Detail hubungan ke dashboard "barang siap kirim" (bagian 57) dan Lapis 2 ruang diskusi
+
+**Progress (10-11 Agustus 2026): Endpoint 2 confirm dinamis SELESAI & teruji (bagian 57/61)**
+
+Status: Endpoint `POST /v1/stage-submissions/:id/confirm` sudah di-rewrite total mengikuti keputusan bagian 61 (confirm dinamis mengikuti stage_order per tenant) — versi lama yang hardcode assigned_stage='qc' untuk semua stage sudah tidak dipakai, sesuai catatan bagian 57 VERSI FINAL. Sudah di-commit ke GitHub (commit f9e1c6a).
+
+Logic baru: confirmer TIDAK lagi hardcode nama stage. Caranya:
+1. Ambil semua baris tenant_pipeline_stages tenant tersebut, urut stage_order.
+2. Cari stage_order dari stage_key submission yang mau di-confirm.
+3. next_order = stage_order submission + 1.
+4. Kalau next_order >= stage_order maksimal di pipeline (artinya stage berikutnya adalah stage terminal seperti "shipped" yang tidak punya staff/submission), confirmer diambil dari stage yang is_gudang_stage = true (wrap-around ke gudang).
+5. Kalau bukan, confirmer adalah staff di stage dengan stage_order = next_order (normal, linear).
+6. Staff yang mencoba confirm dicek assigned_stage-nya harus persis sama dengan stage_key confirmer hasil langkah 4/5 — kalau tidak, ditolak 403 dengan pesan jelas (required_stage vs your_stage).
+
+Ini murni menyelesaikan bagian PERTAMA dari rewrite total yang diminta bagian 57 VERSI FINAL — yaitu "siapa yang berhak confirm". Bagian KEDUA (ruang diskusi otomatis / Lapis 2 saat discrepancy) BELUM diimplementasi di endpoint ini — sengaja dipisah jadi pekerjaan terpisah karena butuh skema tabel baru (discussion threads/participants) yang belum ada sama sekali, dicek dan dikonfirmasi kosong sebelum mulai kerja (query \dt tidak menemukan tabel discuss/thread/case apapun).
+
+Testing manual dilakukan via curl langsung ke localhost:3000 (bukan test otomatis), pakai Host header "demo.fashion-platform.local" (subdomain "demo" ditemukan lewat query resolve_tenant_id('demo') karena tabel tenants sendiri diproteksi RLS service_role-only, tidak bisa diquery langsung oleh app_user meski app.tenant_id sudah di-SET).
+
+Skenario yang sudah diuji dan LOLOS:
+1. Staff QC Demo submit qty di stage qc (qty_submitted=50) lewat endpoint 1, submission masuk status PENDING_QC.
+2. Staff QC Demo sendiri mencoba confirm submission itu -- DITOLAK dengan pesan {"error":"staff ini tidak berhak confirm submission stage tersebut","required_stage":"finishing","your_stage":"qc"}. Sesuai ekspektasi, karena confirmer submission dari stage qc (order 4) seharusnya staff di stage finishing (order 5), bukan qc lagi.
+3. Staff Packing Demo (assigned_stage sudah finishing sesuai rename, nama full_name masih lama karena tidak ikut di-rename) berhasil confirm submission yang sama -- qty_submitted sama dengan qty_confirmed (50=50) jadi status CONFIRMED. Job otomatis maju stage lewat ingestEvent(STAGE_COMPLETED) yang sudah ada sebelumnya, tidak disentuh.
+
+Skenario wrap-around (submission dari stage finishing dikonfirmasi oleh staff gudang) BELUM sempat diuji karena kehabisan waktu sesi -- jadi next steps prioritas pertama begitu lanjut lagi.
+
+Temuan penting (bukan bug dari kode rewrite, tapi gap data lama): job production_jobs yang dibuat SEBELUM rename stage packing->finishing dieksekusi (bagian 57) punya kolom pipeline_snapshot yang beku/disimpan permanen saat job dibuat, dengan nama stage LAMA (packing). Rename yang dilakukan sebelumnya hanya mengupdate tabel tenant_pipeline_stages (live/sumber kebenaran terkini), TIDAK ikut mengupdate pipeline_snapshot job yang sudah ada duluan. Akibatnya job demo (id 25352257-4cff-4377-85d7-2a63b05146fe) sempat nyangkut dengan current_stage='packing' meski tenant_pipeline_stages tenant tersebut sudah berisi 'finishing' -- ini menyebabkan endpoint 2 baru gagal (500 error, stage_key tidak ditemukan di tenant_pipeline_stages) karena dia mencari 'packing' di tabel yang sudah tidak punya baris itu lagi.
+
+Perbaikan yang dilakukan (BUKAN manipulasi current_stage/next_sequence_version sembarangan seperti yang dilarang di key learning sebelumnya -- ini murni koreksi LABEL/NAMA yang salah karena rename lama tidak lengkap, posisi job di alur produksi TIDAK berubah sama sekali):
+UPDATE production_jobs SET pipeline_snapshot = REPLACE(pipeline_snapshot::text, '"packing"', '"finishing"')::jsonb, current_stage = 'finishing' WHERE id = '25352257-4cff-4377-85d7-2a63b05146fe';
+Sudah diverifikasi berhasil, current_stage sekarang 'finishing', sinkron dengan tenant_pipeline_stages.
+
+PENTING untuk sesi berikutnya: kalau ada job production lain (bukan cuma job demo ini) yang dibuat sebelum rename packing->finishing, kemungkinan besar punya masalah yang sama (pipeline_snapshot masih pakai nama lama). Saat ini database cuma punya 1 job total (sudah dicek lewat SELECT count/list), jadi tidak ada job lain yang kena, tapi worth diwaspadai kalau nanti restore dari backup lama atau ada job baru yang datanya aneh.
+
+Staff test tambahan yang dibuat untuk tenant demo (tenant_id 8ae20661-626d-42c9-b930-6c926ca3ce99), khusus untuk keperluan testing endpoint ini:
+- Staff Gudang Demo, id aa322173-0c47-46ec-a87d-9dc120374f5f, assigned_stage 'gudang', PIN 1234 -- staff gudang SEBELUMNYA TIDAK ADA sama sekali di data staff tenant demo, baru dibuat sesi ini.
+- PIN staff QC Demo (664f0cbb-d4a6-41d5-b42d-40e46d817671), Staff Jahit Demo (2efe0dcd-c110-4596-9613-f5f1d9406580), dan Staff Packing Demo (5ee69701-fdc5-4a37-8453-4e3de0d51fd0) semuanya direset ke PIN 1234 juga (sebelumnya tidak diketahui PIN aslinya karena di-hash, tidak tercatat di CHECKPOINT selain Admin Demo dan Staff Packing Demo).
+
+Cara login testing (contoh, sesuaikan staff_id dan token sesuai kebutuhan):
+curl -s -X POST http://localhost:3000/v1/staff/login -H "Content-Type: application/json" -H "Host: demo.fashion-platform.local" -H "x-api-key: $API_KEY" -d '{"staff_id": "<uuid-staff>", "pin": "1234"}'
+Subdomain tenant demo adalah "demo" (ditemukan lewat resolve_tenant_id), host testing yang dipakai adalah "demo.fashion-platform.local" (domain palsu untuk keperluan lokal, sudah pernah dipakai juga di testing WebSocket bagian sebelumnya).
+
+File backup server.js.bak-before-endpoint2-rewrite masih ada di VPS (belum dihapus, belum di-commit karena kemungkinan besar di-gitignore atau memang tidak di-add) -- worth dihapus di sesi berikutnya kalau endpoint sudah dianggap stabil, atau dibiarkan saja sebagai referensi kalau perlu rollback cepat.
+
+Next steps (urutan prioritas untuk sesi berikutnya):
+1. Test skenario wrap-around: staff finishing submit qty di stage finishing, staff gudang (staff baru yang dibuat sesi ini) confirm -- pastikan logic wrap-around ke is_gudang_stage=true benar-benar jalan, bukan cuma logic normal yang kebetulan lolos test kemarin.
+2. Hapus atau simpan keputusan soal file server.js.bak-before-endpoint2-rewrite.
+3. Cek ulang log PM2 (pm2 logs fashion-platform) untuk pastikan tidak ada error baru yang nyangkut dari sesi testing ini.
+4. Lanjut endpoint 3-5 (discrepancy reason, eskalasi, resolve) -- BARU bisa dikerjakan dengan baik setelah Lapis 2 (skema tabel ruang diskusi) dirancang, karena endpoint 3-5 secara desain nyambung ke hasil diskusi tersebut (lihat bagian 57 VERSI FINAL).
+5. Rancang skema tabel Lapis 2 (ruang diskusi: threads, participants, messages, tombol panggil mediator) -- belum ada sama sekali, next steps besar berikutnya.
