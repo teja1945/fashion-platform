@@ -815,3 +815,37 @@ Next steps (bagian 74 logic resign & reassignment BELUM diimplementasi sebagai f
 - Tabel discrepancy_cases (kasus utama - link ke stage_quantity_submissions yang sudah ada kolom status DISCREPANCY, atau tabel terpisah - perlu diputuskan sesi berikutnya)
 - Tabel discrepancy_thread_messages (isi ruang diskusi - teks, foto, catatan panggilan, 1 linimasa)
 - Tabel tenant_trusted_staff (untuk kasus stok kosong bagian 72, terpisah dari tenant_mediators)
+
+===================================================================
+BAGIAN 76 — EKSEKUSI: Tabel discrepancy_cases & mediator_reassignment_log (12 Agustus 2026)
+===================================================================
+Status: Migration berhasil dijalankan via Supabase MCP.
+
+Migration diterapkan:
+- create_discrepancy_cases
+
+Keputusan desain penting sebelum eksekusi:
+- RESOLVED bersifat FINAL PERMANEN, tidak ada mekanisme reopen. Kejelasan harus dicapai SEBELUM status jadi RESOLVED, bukan sesudah.
+- Alur konfirmasi: penengah tulis resolution_notes (status IN_DISCUSSION) -> submitter & receiver wajib konfirmasi (submitter_confirmed_at, receiver_confirmed_at) -> kalau KEDUANYA confirm, otomatis RESOLVED.
+- Kalau ada yang menolak konfirmasi: severity NORMAL -> penengah bisa "selesaikan paksa" pakai mandat (resolved_with_mandate=true, tercatat siapa yang menolak). severity SERIOUS -> WAJIB eskalasi ke owner (status ESCALATED_TO_OWNER), penengah tidak bisa memaksa.
+
+Tabel discrepancy_cases:
+- id, tenant_id, stage_quantity_submission_id (FK, UNIQUE - 1 submission = 1 kasus), production_job_id (FK, untuk query cepat tanpa join)
+- submitter_staff_id, receiver_staff_id, mediator_id (FK tenant_mediators, nullable karena bisa berubah lewat reassignment)
+- status (OPEN/IN_DISCUSSION/RESOLVED/ESCALATED_TO_OWNER), severity (NORMAL/SERIOUS, default NORMAL)
+- resolution_notes, submitter_confirmed_at, receiver_confirmed_at
+- resolved_by_staff_id, resolved_at, resolved_with_mandate (default false)
+- created_at, updated_at
+- RLS aktif, policy tenant_isolation
+
+Tabel mediator_reassignment_log (baru, jejak permanen):
+- id, tenant_id, discrepancy_case_id (FK), old_mediator_id (nullable), new_mediator_id, reason, triggered_by_staff_id, created_at
+- Tujuan: perpindahan penengah (resign/reassignment bagian 74) dicatat sebagai event permanen, BUKAN overwrite kolom mediator_id di discrepancy_cases tanpa jejak - konsisten Rasa Keamanan (bagian 64 poin 6)
+- RLS aktif, policy tenant_isolation
+
+Verifikasi: get_advisors type security -> 0 warning.
+
+Next steps:
+- Tabel discrepancy_thread_messages (isi ruang diskusi - teks, foto, catatan panggilan, 1 linimasa) - baru bisa dirancang sekarang karena discrepancy_cases.id sudah ada
+- Tabel tenant_trusted_staff (kasus stok kosong bagian 72)
+- Function/endpoint logic resign & reassignment (baru skema tabel yang ada, logic-nya belum jadi kode)
