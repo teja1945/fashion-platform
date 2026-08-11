@@ -113,6 +113,7 @@ J. Automation "AI mikir + AI eksekusi" untuk kerja rutin (proyek terpisah, Claud
 K. Adopsi dari referensi BTOS: visual mannequin 3D, decision center actionable, model sewa modular "akses vs pemakaian", entry point trial terbatas — bagian 67
 L. Saran hardening internal: restore drill, integritas foto (EXIF/perceptual hash), audit log admin terpisah, offline-first scanner, formula skor supplier — bagian 68
 M. Gudang final terhubung ke lokasi rak & data siap kirim (dicatat saat submission finishing dicek gudang) — bagian 69
+N. Adopsi tambahan BTOS: pola "Resume Don't Recreate", sistem antrian/assignment real-time walk-in, AI Vision Judge untuk validasi render — bagian 70
 
 ===================================================================
 8. TOOL DEVELOPMENT — STATUS
