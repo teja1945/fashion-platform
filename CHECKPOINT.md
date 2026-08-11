@@ -715,3 +715,42 @@ Trigger - kombinasi otomatis + manual:
 Alur eskalasi: langsung ke staff kepercayaan/asisten owner, atau owner kalau perlu - TIDAK perlu skema 3-pihak (penyetor-penerima-penengah) seperti discrepancy quantity, karena di sini tidak ada "penyetor", cuma "yang nemuin masalah stok".
 
 Staff kepercayaan - fleksibel, tidak dibatasi jumlah: sama seperti sistem penengah, jumlah staff kepercayaan tidak di-hardcode dari sistem - tenant yang tentukan sesuai kebutuhan mereka. Tiap staff kepercayaan tetap wajib punya cadangan yang sudah terdata dari awal (konsisten sama sistem penengah bagian 71).
+
+===================================================================
+BAGIAN 73 — DARURAT STAFF DI TENGAH PEKERJAAN & PRINSIP NOTIFIKASI CEPAT (rencana, belum diimplementasi)
+===================================================================
+Konsep dasar: kalau staff yang lagi ngerjain job harus berhenti mendadak (urusan keluarga, sakit, kecelakaan, meninggal), sistem harus bisa: (1) catat progress yang sudah dikerjain sejauh mana, (2) pindahkan kerjaan ke staff lain buat dilanjutin, (3) sediakan data buat bantu keputusan pembagian upah - TANPA menghitung otomatis persentase bayaran (itu keputusan manusia, bukan matematika sistem).
+
+Mode normal vs darurat:
+- Normal: 1 scan mulai -> kerja -> 1 scan selesai -> submit (tidak berubah dari sekarang)
+- Darurat: tombol khusus "Lapor Darurat" yang HANYA muncul/aktif kalau dipicu, bukan langkah wajib tiap job
+
+Alur darurat biasa (staff harus pulang mendadak, dll):
+1. Staff (atau rekan yang ada di lokasi) pencet "Lapor Darurat" di job yang lagi jalan
+2. Wajib isi: foto kondisi kerjaan + catatan progress (sejauh mana, bagian apa yang sudah/belum)
+3. Notifikasi otomatis ke staff kepercayaan yang bertugas (+ cadangannya kalau utama tidak respon)
+4. Staff kepercayaan review foto+catatan, approve
+5. Job "terbuka", staff pengganti scan buat ambil alih, lanjut kerja sampai selesai
+6. Split upah keputusan MANUAL staff kepercayaan/owner berdasar bukti foto+catatan yang tersimpan (sistem cuma nyediakan data pendukung, bukan hitung otomatis)
+
+Alur darurat serius (meninggal/kecelakaan/pingsan) - approval lebih ketat:
+WAJIB approval dari owner langsung, atau orang yang sudah dikasih mandat eksplisit oleh owner khusus untuk kasus seberat ini - BUKAN staff kepercayaan biasa yang approve sendiri.
+
+Keamanan/anti-akal-akalan (4 lapis):
+1. Approval wajib dari staff kepercayaan/owner (staff tidak bisa self-declare darurat lalu langsung lempar kerjaan)
+2. Job dikunci (job_locks) begitu status "menunggu pengganti" - cuma 1 staff pengganti yang ditunjuk yang bisa ambil, bukan siapa saja yang scan duluan
+3. Log waktu + siapa permanen di tiap scan - staff pertama tidak bisa "balik lagi" ke job yang sudah dipegang staff lain
+4. Foto wajib di tiap checkpoint darurat - bukti visual, bukan klaim angka semata
+
+QR multi-scan (khusus mode darurat):
+1 kode QR per job bisa discan berkali-kali sepanjang perjalanan kerjaan itu: scan mulai -> scan checkpoint darurat (kalau dipicu) -> scan lanjut oleh pengganti -> scan selesai. Tiap scan ke-log otomatis (siapa, jam, status). Perluasan dari ide "QR dual route" (bagian 47-48) - QR tetap cuma identitas resource, bukan otorisasi otomatis (otorisasi tetap lewat approval staff kepercayaan/owner).
+
+Prinsip notifikasi cepat (berlaku umum, bukan cuma darurat staff):
+Semua kasus yang butuh perhatian cepat - discrepancy/reject (bagian 71), stok kosong (bagian 72), darurat staff (bagian ini) - pakai standar notifikasi yang sama: kirim ke DASHBOARD dan WA sekaligus (bukan cuma 1 jalur), supaya staff kepercayaan/owner cepat tanggap tanpa harus mantengin app. Filosofinya: warning harus terasa "mendesak", bukan notifikasi pasif yang gampang kelewat.
+
+Tambahan - soal koneksi putus/mati lampu saat kerja:
+Full offline-first (nyimpen data lokal di HP staff lalu auto-sync begitu internet balik) TIDAK dibangun sekarang - konsisten dengan catatan lama (poin 49 dokumen review eksternal): risiko konflik data terlalu tinggi buat sistem event-sourcing yang butuh urutan ketat, dan biaya bangun/testing besar (berminggu-minggu sampai berbulan-bulan) tidak sepadan di tahap sekarang.
+
+Solusi V1 yang cukup: kalau koneksi gagal saat submit/scan, app tampilkan pesan jelas "gak ada koneksi, coba lagi" DAN data yang sudah diisi di form tetap tersimpan di layar (tidak hilang, tidak perlu isi ulang) sampai staff coba kirim lagi setelah sinyal balik. Ini bukan offline-sync, cuma mencegah kehilangan input yang sedang diketik.
+
+Full offline-first tetap dicatat sebagai visi jangka panjang, dipertimbangkan lagi kalau nanti ada tenant di lokasi dengan masalah sinyal serius dan berulang.
