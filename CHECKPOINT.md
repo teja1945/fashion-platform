@@ -756,3 +756,27 @@ Full offline-first (nyimpen data lokal di HP staff lalu auto-sync begitu interne
 Solusi V1 yang cukup: kalau koneksi gagal saat submit/scan, app tampilkan pesan jelas "gak ada koneksi, coba lagi" DAN data yang sudah diisi di form tetap tersimpan di layar (tidak hilang, tidak perlu isi ulang) sampai staff coba kirim lagi setelah sinyal balik. Ini bukan offline-sync, cuma mencegah kehilangan input yang sedang diketik.
 
 Full offline-first tetap dicatat sebagai visi jangka panjang, dipertimbangkan lagi kalau nanti ada tenant di lokasi dengan masalah sinyal serius dan berulang.
+
+===================================================================
+BAGIAN 74 — SKEMA FINAL: SISTEM PENENGAH, CADANGAN BERJENJANG, & LOGIC RESIGN (rencana teknis, siap diimplementasi)
+===================================================================
+Tabel tenant_mediators:
+- id, tenant_id, staff_id, line_scope (nullable, general kalau kosong), has_full_mandate (default false, TIDAK otomatis ikut pindah ke cadangan), is_active, assigned_by, created_at, updated_at
+
+Tabel mediator_backups (baru, cadangan berjenjang):
+- mediator_id, backup_staff_id, priority_order (1 = dicoba duluan)
+- Jumlah cadangan per penengah bebas (1 atau lebih), ditentukan owner sesuai kebutuhan tenant
+- Validasi: penengah wajib minimal 1 cadangan terdata sebelum bisa dipakai aktif ke kasus baru
+
+Logic resign & reassignment kasus aktif:
+1. Status resign cuma bisa di-set owner (bukan self-service staff)
+2. Sistem cari SEMUA kasus aktif yang mediator_id-nya = staff yang resign (bukan asumsi cuma 1 kasus)
+3. Kalau lebih dari 1 kasus aktif dan lebih dari 1 cadangan tersedia: dibagi rata pakai round-robin sederhana berdasar priority_order (kasus 1->cadangan 1, kasus 2->cadangan 2, kasus 3->balik ke cadangan 1, dst)
+4. Kalau cuma 1 cadangan: semua kasus ke dia
+5. Kalau cadangan urutan pertama juga tidak available (is_active=false): sistem coba cadangan urutan berikutnya
+6. Kalau SEMUA cadangan tidak available: eskalasi ke owner, TIDAK dipaksa jalan otomatis
+7. Perpindahan kasus = event permanen (bukan field yang bisa ditimpa ulang) - konsisten prinsip event-sourcing
+8. Seluruh proses dalam 1 transaksi atomic (BEGIN...COMMIT) - konsisten pola reserve_fabric_inventory()
+9. Mandat penuh (has_full_mandate) TIDAK otomatis ikut pindah ke cadangan - harus dikasih ulang manual oleh owner kalau memang mau dilanjutkan
+10. Notifikasi ke cadangan baru + owner + pihak terlibat kasus, terjamin terkirim (bagian dari transaksi/outbox, bukan optional)
+11. Staff yang resign otomatis is_active=false di tenant_mediators, tidak bisa di-assign kasus baru lagi
