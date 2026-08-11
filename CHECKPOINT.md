@@ -1,3 +1,5 @@
+>>> WAJIB DIBACA DULU SEBELUM APAPUN LAIN: lihat Bagian 64 "FILOSOFI PRODUK" di bawah. Semua fitur baru (endpoint, UI, notifikasi, teks, dashboard) WAJIB dicek balik ke 5 Rasa (Copywriting, Sales, Marketing, Talent/Penghargaan, Customer Service) sebelum dianggap selesai. Ini prinsip permanen, bukan sekadar 1 dari banyak ide di checkpoint ini. <<<
+
 CHECKPOINT — Fashion Platform (Multi-Tenant SaaS)
 Update terakhir: 8 Agustus 2026 (file di-split jadi ringkas + arsip)
 
