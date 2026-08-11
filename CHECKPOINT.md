@@ -659,3 +659,16 @@ Belum diperbaiki karena akar masalah belum jelas -- worth dipantau di sesi berik
 Cleanup: dihapus file CHECKPOINT_new.md (draft split lama 8 Agustus, sudah ketinggalan jauh dari CHECKPOINT.md ini, tidak ada isi baru yang hilang), dan file backup lama CHECKPOINT.md.bak-20260808, db.js.bak-20260808, scanner.html.bak-20260810, server.js.bak-20260808 (semua sudah aman tersimpan di git history, tidak perlu backup file terpisah). Juga dihapus server.js.bak-before-endpoint2-rewrite (backup manual sesi kemarin sebelum rewrite endpoint confirm, sudah tidak perlu karena kode sudah di-commit dan teruji).
 
 Konfirmasi soal temuan minor DeprecationWarning "client.query() already executing" (dicatat sebelumnya): ditemukan referensi dari draft CHECKPOINT_new.md (sebelum dihapus) bahwa warning yang sama (MaxListenersExceededWarning + DeprecationWarning client.query) pernah muncul di investigasi sebelumnya (bagian 54, verifikasi NOTIFY end-to-end 8 Agustus), dan setelah pm2 flush + restart bersih, warning itu TIDAK MUNCUL LAGI -- dikonfirmasi saat itu bukan bug aktif, cuma numpukan log lama dari restart-restart sebelumnya. Sesi ini sudah dicoba ulang: pm2 flush fashion-platform + pm2 restart fashion-platform, log sekarang bersih. Kesimpulan final: warning ini BUKAN bug di kode aplikasi, murni numpukan log dari sesi-sesi testing manual yang restart PM2 berkali-kali -- tidak perlu tindakan perbaikan kode apapun.
+
+**70. Ide Awal — Adopsi Tambahan dari Referensi BTOS versi Diperluas (11 Agustus 2026, BELUM DIRISET MATANG)**
+
+Status: Muncul dari audit dokumen "Strategi Menjual BTOS" versi lebih lengkap (materi jualan Deka, lebih detail dari dokumen yang jadi dasar bagian 67). Sebagian besar isi dokumen ini (model sewa modular, Entry Point trial, pelajaran kegagalan reservasi stok/PO/waste tracking, Decision Center actionable) SUDAH tercatat di bagian 67 — TIDAK diulang di sini. Ini cuma 3 poin baru yang belum tercatat sebelumnya.
+
+1. **Pola "Resume, Don't Recreate"** — kalau proses multi-step (misal isi order, atau alur submission staff) ditinggal di tengah jalan sebelum selesai, sistem otomatis lanjut dari tahap terakhir begitu dibuka lagi, bukan mulai dari nol. Ini pola UX generik yang bisa diterapkan ke alur mana pun di platform yang sifatnya multi-step, tidak terbatas ke satu modul saja.
+
+2. **Sistem Antrian/Assignment real-time untuk walk-in customer** — beda dari appointment scheduling (sudah ada di roadmap bagian 66 poin 6, itu untuk booking terjadwal). Ini untuk pelanggan yang datang langsung tanpa janji: ditandai "siap dilayani" → di-assign ke staf tertentu (bisa diganti) → mulai dilayani. Relevan kalau nanti modul konsultasi/Fitter App (roadmap bagian 66 poin 7) digarap.
+
+3. **AI Vision Judge** — konsep validasi otomatis: cek kemiripan hasil AI render vs foto asli pelanggan, sebagai quality gate sebelum hasil render ditampilkan ke pelanggan. Baru relevan kalau nanti modul AI Render Preview (roadmap bagian 66 poin 8, disebut "paling belakang" karena kompleksitas & biaya API) digarap — dicatat sebagai catatan desain untuk nanti, bukan next steps aktif.
+
+Yang belum kejawab (buat sesi berikutnya, TIDAK PERLU DIJAWAB SEKARANG):
+- Detail teknis implementasi ketiga pola ini kalau nanti masing-masing modul terkait mulai digarap.
