@@ -20,12 +20,12 @@ Cara pakai:
 2. IDENTIFIER KUNCI
 ===================================================================
 - Repo GitHub: teja1945/fashion-platform (public)
-- VPS: Biznet Gio, Jakarta, user Rakyat, IP 103.58.101.155, Ubuntu 22.04.5 LTS
-- Supabase project (aktif): kwhybffbcqopqbbnuigg — https://kwhybffbcqopqbbnuigg.supabase.co
-- Supabase project lama (LTOS, di-pause): dyqnjfaylhzumfahmmht — JANGAN dihapus, ada data historis, RLS sudah aman
-- Demo tenant ID: 8ae20661-626d-42c9-b930-6c926ca3ce99
-- Demo production job (testing): 25352257-4cff-4377-85d7-2a63b05146fe (current_stage: packing)
-- Staff test: Admin Demo (id 35afaab6-8095-4763-9029-ba22aaa23607, PIN 1234), Staff Packing Demo (id 5ee69701-fdc5-4a37-8453-4e3de0d51fd0, PIN 1234, assigned_stage packing)
+- VPS: Biznet Gio, Jakarta, user Rakyat, IP <VPS_IP, lihat CHECKPOINT_LOCAL.md>, Ubuntu 22.04.5 LTS
+- Supabase project (aktif): <SUPABASE_PROJECT_ID, lihat CHECKPOINT_LOCAL.md> — https://<SUPABASE_PROJECT_ID, lihat CHECKPOINT_LOCAL.md>.supabase.co
+- Supabase project lama (LTOS, di-pause): <SUPABASE_PROJECT_ID_LAMA, lihat CHECKPOINT_LOCAL.md> — JANGAN dihapus, ada data historis, RLS sudah aman
+- Demo tenant ID: <DEMO_TENANT_ID, lihat CHECKPOINT_LOCAL.md>
+- Demo production job (testing): <DEMO_JOB_ID, lihat CHECKPOINT_LOCAL.md> (current_stage: packing)
+- Staff test: Admin Demo (id <ADMIN_DEMO_ID, lihat CHECKPOINT_LOCAL.md>, PIN (lihat CHECKPOINT_LOCAL.md)), Staff Packing Demo (id <STAFF_FINISHING_DEMO_ID, lihat CHECKPOINT_LOCAL.md>, PIN (lihat CHECKPOINT_LOCAL.md), assigned_stage packing)
 - Vercel: project fashion-platform terhubung ke repo, auto-deploy dari main, URL https://fashion-platform-six.vercel.app (masih 404, belum ada kode frontend)
 
 ===================================================================
@@ -265,8 +265,8 @@ Endpoint yang sudah jadi (2 dari 5 rencana):
 2. POST /v1/stage-submissions/:id/confirm -- QC confirm qty. Validasi: staff aktif, assigned_stage = 'qc', submission masih PENDING_QC (409 kalau sudah diproses). Update status submission, lalu panggil ingestEvent() dengan event_type STAGE_COMPLETED untuk majukan stage (lewat jalur event-sourcing yang sudah ada di ingestion.js/versioning.js/stateLayer.js -- BUKAN update production_jobs langsung).
 
 Testing (via curl di VPS, staff testing dibuat manual):
-- Staff Jahit Demo (2efe0dcd-...) submit 49 -> PENDING_QC. Submit lagi 1 (job+stage sama) -> diterima, submission kedua terpisah. Staff jahit coba submit ke stage 'qc' (bukan stage-nya) -> ditolak 403.
-- Staff QC Demo (664f0cbb-...) confirm submission qty 49 dengan qty_confirmed 49 (sama) -> CONFIRMED, stage maju normal.
+- Staff Jahit Demo (<STAFF_JAHIT_DEMO_ID>-...) submit 49 -> PENDING_QC. Submit lagi 1 (job+stage sama) -> diterima, submission kedua terpisah. Staff jahit coba submit ke stage 'qc' (bukan stage-nya) -> ditolak 403.
+- Staff QC Demo (<STAFF_QC_DEMO_ID>-...) confirm submission qty 49 dengan qty_confirmed 49 (sama) -> CONFIRMED, stage maju normal.
 - Confirm submission qty 1 dengan qty_confirmed 0 (beda) -> DISCREPANCY, stage TETAP maju (terbukti: current_stage job testing berubah dari jahit ke qc).
 
 PELAJARAN PENTING dari sesi testing ini:
@@ -603,20 +603,20 @@ Skenario yang sudah diuji dan LOLOS:
 
 Skenario wrap-around (submission dari stage finishing dikonfirmasi oleh staff gudang) BELUM sempat diuji karena kehabisan waktu sesi -- jadi next steps prioritas pertama begitu lanjut lagi.
 
-Temuan penting (bukan bug dari kode rewrite, tapi gap data lama): job production_jobs yang dibuat SEBELUM rename stage packing->finishing dieksekusi (bagian 57) punya kolom pipeline_snapshot yang beku/disimpan permanen saat job dibuat, dengan nama stage LAMA (packing). Rename yang dilakukan sebelumnya hanya mengupdate tabel tenant_pipeline_stages (live/sumber kebenaran terkini), TIDAK ikut mengupdate pipeline_snapshot job yang sudah ada duluan. Akibatnya job demo (id 25352257-4cff-4377-85d7-2a63b05146fe) sempat nyangkut dengan current_stage='packing' meski tenant_pipeline_stages tenant tersebut sudah berisi 'finishing' -- ini menyebabkan endpoint 2 baru gagal (500 error, stage_key tidak ditemukan di tenant_pipeline_stages) karena dia mencari 'packing' di tabel yang sudah tidak punya baris itu lagi.
+Temuan penting (bukan bug dari kode rewrite, tapi gap data lama): job production_jobs yang dibuat SEBELUM rename stage packing->finishing dieksekusi (bagian 57) punya kolom pipeline_snapshot yang beku/disimpan permanen saat job dibuat, dengan nama stage LAMA (packing). Rename yang dilakukan sebelumnya hanya mengupdate tabel tenant_pipeline_stages (live/sumber kebenaran terkini), TIDAK ikut mengupdate pipeline_snapshot job yang sudah ada duluan. Akibatnya job demo (id <DEMO_JOB_ID, lihat CHECKPOINT_LOCAL.md>) sempat nyangkut dengan current_stage='packing' meski tenant_pipeline_stages tenant tersebut sudah berisi 'finishing' -- ini menyebabkan endpoint 2 baru gagal (500 error, stage_key tidak ditemukan di tenant_pipeline_stages) karena dia mencari 'packing' di tabel yang sudah tidak punya baris itu lagi.
 
 Perbaikan yang dilakukan (BUKAN manipulasi current_stage/next_sequence_version sembarangan seperti yang dilarang di key learning sebelumnya -- ini murni koreksi LABEL/NAMA yang salah karena rename lama tidak lengkap, posisi job di alur produksi TIDAK berubah sama sekali):
-UPDATE production_jobs SET pipeline_snapshot = REPLACE(pipeline_snapshot::text, '"packing"', '"finishing"')::jsonb, current_stage = 'finishing' WHERE id = '25352257-4cff-4377-85d7-2a63b05146fe';
+UPDATE production_jobs SET pipeline_snapshot = REPLACE(pipeline_snapshot::text, '"packing"', '"finishing"')::jsonb, current_stage = 'finishing' WHERE id = '<DEMO_JOB_ID, lihat CHECKPOINT_LOCAL.md>';
 Sudah diverifikasi berhasil, current_stage sekarang 'finishing', sinkron dengan tenant_pipeline_stages.
 
 PENTING untuk sesi berikutnya: kalau ada job production lain (bukan cuma job demo ini) yang dibuat sebelum rename packing->finishing, kemungkinan besar punya masalah yang sama (pipeline_snapshot masih pakai nama lama). Saat ini database cuma punya 1 job total (sudah dicek lewat SELECT count/list), jadi tidak ada job lain yang kena, tapi worth diwaspadai kalau nanti restore dari backup lama atau ada job baru yang datanya aneh.
 
-Staff test tambahan yang dibuat untuk tenant demo (tenant_id 8ae20661-626d-42c9-b930-6c926ca3ce99), khusus untuk keperluan testing endpoint ini:
-- Staff Gudang Demo, id aa322173-0c47-46ec-a87d-9dc120374f5f, assigned_stage 'gudang', PIN 1234 -- staff gudang SEBELUMNYA TIDAK ADA sama sekali di data staff tenant demo, baru dibuat sesi ini.
-- PIN staff QC Demo (664f0cbb-d4a6-41d5-b42d-40e46d817671), Staff Jahit Demo (2efe0dcd-c110-4596-9613-f5f1d9406580), dan Staff Packing Demo (5ee69701-fdc5-4a37-8453-4e3de0d51fd0) semuanya direset ke PIN 1234 juga (sebelumnya tidak diketahui PIN aslinya karena di-hash, tidak tercatat di CHECKPOINT selain Admin Demo dan Staff Packing Demo).
+Staff test tambahan yang dibuat untuk tenant demo (tenant_id <DEMO_TENANT_ID, lihat CHECKPOINT_LOCAL.md>), khusus untuk keperluan testing endpoint ini:
+- Staff Gudang Demo, id <STAFF_GUDANG_DEMO_ID, lihat CHECKPOINT_LOCAL.md>, assigned_stage 'gudang', PIN (lihat CHECKPOINT_LOCAL.md) -- staff gudang SEBELUMNYA TIDAK ADA sama sekali di data staff tenant demo, baru dibuat sesi ini.
+- PIN staff QC Demo (<STAFF_QC_DEMO_ID, lihat CHECKPOINT_LOCAL.md>), Staff Jahit Demo (<STAFF_JAHIT_DEMO_ID, lihat CHECKPOINT_LOCAL.md>), dan Staff Packing Demo (<STAFF_FINISHING_DEMO_ID, lihat CHECKPOINT_LOCAL.md>) semuanya direset ke PIN (lihat CHECKPOINT_LOCAL.md) juga (sebelumnya tidak diketahui PIN aslinya karena di-hash, tidak tercatat di CHECKPOINT selain Admin Demo dan Staff Packing Demo).
 
 Cara login testing (contoh, sesuaikan staff_id dan token sesuai kebutuhan):
-curl -s -X POST http://localhost:3000/v1/staff/login -H "Content-Type: application/json" -H "Host: demo.fashion-platform.local" -H "x-api-key: $API_KEY" -d '{"staff_id": "<uuid-staff>", "pin": "1234"}'
+curl -s -X POST http://localhost:3000/v1/staff/login -H "Content-Type: application/json" -H "Host: demo.fashion-platform.local" -H "x-api-key: $API_KEY" -d '{"staff_id": "<uuid-staff>", "pin": "<pin, lihat CHECKPOINT_LOCAL.md>"}'
 Subdomain tenant demo adalah "demo" (ditemukan lewat resolve_tenant_id), host testing yang dipakai adalah "demo.fashion-platform.local" (domain palsu untuk keperluan lokal, sudah pernah dipakai juga di testing WebSocket bagian sebelumnya).
 
 File backup server.js.bak-before-endpoint2-rewrite masih ada di VPS (belum dihapus, belum di-commit karena kemungkinan besar di-gitignore atau memang tidak di-add) -- worth dihapus di sesi berikutnya kalau endpoint sudah dianggap stabil, atau dibiarkan saja sebagai referensi kalau perlu rollback cepat.
@@ -632,7 +632,7 @@ Next steps (urutan prioritas untuk sesi berikutnya):
 
 Status: Melanjutkan next steps prioritas 1 dari catatan sesi sebelumnya. Skenario wrap-around (submission dari stage finishing dikonfirmasi oleh staff gudang) sudah diuji dan LOLOS.
 
-Langkah test: Staff Packing Demo (assigned_stage finishing) submit qty_submitted=50 di stage finishing untuk job demo (25352257-4cff-4377-85d7-2a63b05146fe, saat itu posisi job sudah di stage finishing dari testing sesi sebelumnya). Submission masuk PENDING_QC (id f257a83e-b196-46ef-8768-ef78d6b51605). Staff Gudang Demo (id aa322173-0c47-46ec-a87d-9dc120374f5f, dibuat sesi sebelumnya) berhasil confirm submission itu -- qty_submitted=qty_confirmed (50=50), status jadi CONFIRMED. Job otomatis maju ke stage 'shipped' (stage terminal, akhir siklus).
+Langkah test: Staff Packing Demo (assigned_stage finishing) submit qty_submitted=50 di stage finishing untuk job demo (<DEMO_JOB_ID, lihat CHECKPOINT_LOCAL.md>, saat itu posisi job sudah di stage finishing dari testing sesi sebelumnya). Submission masuk PENDING_QC (id f257a83e-b196-46ef-8768-ef78d6b51605). Staff Gudang Demo (id <STAFF_GUDANG_DEMO_ID, lihat CHECKPOINT_LOCAL.md>, dibuat sesi sebelumnya) berhasil confirm submission itu -- qty_submitted=qty_confirmed (50=50), status jadi CONFIRMED. Job otomatis maju ke stage 'shipped' (stage terminal, akhir siklus).
 
 Ini membuktikan logic wrap-around (next_order >= maxOrder -> confirmer diambil dari is_gudang_stage=true) benar-benar berfungsi, bukan cuma logic normal linear yang kebetulan lolos test qc->finishing sebelumnya.
 
@@ -673,3 +673,4 @@ Status: Muncul dari audit dokumen "Strategi Menjual BTOS" versi lebih lengkap (m
 
 Yang belum kejawab (buat sesi berikutnya, TIDAK PERLU DIJAWAB SEKARANG):
 - Detail teknis implementasi ketiga pola ini kalau nanti masing-masing modul terkait mulai digarap.
+- CATATAN DATA SENSITIF (11 Agustus 2026): IP VPS, UUID tenant/staff demo, dan PIN testing SUDAH DIPINDAH ke CHECKPOINT_LOCAL.md (file lokal di VPS, TIDAK ada di GitHub, masuk .gitignore). Kalau sesi ini butuh nilai asli (mis. untuk curl/SQL/testing), minta Teja jalankan `cat CHECKPOINT_LOCAL.md` di VPS dan paste hasilnya ke chat.
