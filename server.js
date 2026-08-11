@@ -38,6 +38,15 @@ function requireApiKey(req, res, next) {
   next();
 }
 
+// Owner = pemilik tenant, wewenang penuh (setara admin + lebih).
+// Semua pengecekan otorisasi "admin-only" WAJIB pakai helper ini,
+// bukan bandingin string role langsung -- supaya owner otomatis
+// ke-cover di semua titik, tidak perlu tambal manual satu-satu.
+const PRIVILEGED_ROLES = ["admin", "owner"];
+function isPrivileged(role) {
+  return PRIVILEGED_ROLES.includes(role);
+}
+
 // =====================================================================
 // EVENTS -- tenant_id WAJIB dari subdomain (req.tenantId), bukan dari
 // body. Klien tetap boleh kirim tenant_id di body (misal buat testing),
@@ -194,7 +203,7 @@ app.post("/v1/staff/login", tenantResolver, requireApiKey, async (req, res) => {
 });
 
 app.post("/v1/staff/revoke", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
-  if (req.staffSession.role !== "admin") {
+  if (!isPrivileged(req.staffSession.role)) {
     return res.status(403).json({ error: "hanya admin yang bisa revoke sesi staff" });
   }
   const { target_staff_id } = req.body || {};
@@ -213,7 +222,7 @@ app.post("/v1/staff/revoke", tenantResolver, requireApiKey, requireStaffSession,
 });
 
 app.post("/v1/staff/offboard", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
-  if (req.staffSession.role !== "admin") {
+  if (!isPrivileged(req.staffSession.role)) {
     return res.status(403).json({ error: "hanya admin yang bisa offboard staff" });
   }
   const { target_staff_id } = req.body || {};
@@ -278,7 +287,7 @@ app.post("/v1/lock/acquire", tenantResolver, requireApiKey, requireStaffSession,
         return { httpStatus: 404, body: { error: "production job tidak ditemukan" } };
       }
 
-      if (role !== "admin") {
+      if (!isPrivileged(role)) {
         if (jobCheck.rows[0].current_stage !== assigned_stage) {
           return {
             httpStatus: 403,
@@ -306,7 +315,7 @@ app.post("/v1/lock/acquire", tenantResolver, requireApiKey, requireStaffSession,
             };
           }
           const adminCheck = await c.query(
-            `SELECT id, full_name FROM staff WHERE role = 'admin' AND is_active = true AND pin_hash = crypt($1, pin_hash)`,
+            `SELECT id, full_name FROM staff WHERE role IN ('admin','owner') AND is_active = true AND pin_hash = crypt($1, pin_hash)`,
             [override_admin_pin]
           );
           if (adminCheck.rows.length === 0) {
@@ -401,7 +410,7 @@ app.post("/v1/lock/release", tenantResolver, requireApiKey, requireStaffSession,
 });
 
 app.post("/v1/lock/force-unlock", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
-  if (req.staffSession.role !== "admin") {
+  if (!isPrivileged(req.staffSession.role)) {
     return res.status(403).json({ error: "hanya admin yang bisa force-unlock" });
   }
   const { production_job_id } = req.body || {};
