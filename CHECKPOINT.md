@@ -643,3 +643,13 @@ Next steps (updated, urutan prioritas):
 3. Lanjut endpoint 3-5 (discrepancy reason, eskalasi, resolve) -- BARU bisa dikerjakan dengan baik setelah Lapis 2 (skema tabel ruang diskusi) dirancang, karena endpoint 3-5 secara desain nyambung ke hasil diskusi tersebut (lihat bagian 57 VERSI FINAL).
 4. Rancang skema tabel Lapis 2 (ruang diskusi: threads, participants, messages, tombol panggil mediator) -- belum ada sama sekali, next steps besar berikutnya.
 5. Kalau mau siklus produksi baru untuk testing lanjutan (job demo sekarang sudah di stage shipped, akhir siklus), perlu bikin job baru atau cari cara reset job demo ke stage awal untuk testing ulang.
+
+**Temuan minor (11 Agustus 2026): DeprecationWarning "client.query() already executing" -- belum ketemu sumber pasti**
+
+Status: Ditemukan saat cek log PM2 pasca testing wrap-around endpoint 2 confirm. Warning: "Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0."
+
+Sudah ditelusuri: dicek semua pemanggilan .query() tanpa await di server.js, ingestion.js, db.js, worker.js -- semuanya memakai pola withTenant(client, tenantId, (c) => c.query(...)) yang di-await oleh pemanggilnya (aman), atau fire-and-forget yang sengaja (db.js SET search_path, pakai .catch()). Realtime relay (client dedicated untuk LISTEN order_state_changed) juga sudah dicek -- di dalam handler notification tidak ada query lain yang dipanggil di client yang sama, cuma broadcast ke WebSocket.
+
+Kesimpulan sementara: tidak ditemukan pola jelas di kode aplikasi yang menyebabkan ini. Kemungkinan dari internal library pg (race condition kecil saat pooling/reconnect) atau kombinasi timing saat testing manual berurutan cepat. BUKAN error fungsional -- semua test endpoint 2 (normal + wrap-around) tetap sukses meski warning ini muncul di log.
+
+Belum diperbaiki karena akar masalah belum jelas -- worth dipantau di sesi berikutnya, terutama kalau muncul lagi dengan pola yang lebih jelas (misal selalu muncul setelah request tertentu).
