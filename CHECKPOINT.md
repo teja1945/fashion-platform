@@ -1,4 +1,4 @@
->>> WAJIB DIBACA DULU SEBELUM APAPUN LAIN: lihat Bagian 64 "FILOSOFI PRODUK" di bawah. Semua fitur baru (endpoint, UI, notifikasi, teks, dashboard) WAJIB dicek balik ke 5 Rasa (Copywriting, Sales, Marketing, Talent/Penghargaan, Customer Service) sebelum dianggap selesai. Ini prinsip permanen, bukan sekadar 1 dari banyak ide di checkpoint ini. <<<
+>>> WAJIB DIBACA DULU SEBELUM APAPUN LAIN: lihat Bagian 64 "FILOSOFI PRODUK" di bawah. Semua fitur baru (endpoint, UI, notifikasi, teks, dashboard) WAJIB dicek balik ke 6 Rasa (Copywriting, Sales, Marketing, Talent/Penghargaan, Customer Service, Keamanan) sebelum dianggap selesai. Ini prinsip permanen, bukan sekadar 1 dari banyak ide di checkpoint ini. <<<
 
 CHECKPOINT — Fashion Platform (Multi-Tenant SaaS)
 Update terakhir: 8 Agustus 2026 (file di-split jadi ringkas + arsip)
@@ -423,11 +423,11 @@ Yang belum kejawab (buat sesi berikutnya, TIDAK PERLU DIJAWAB SEKARANG):
 - Relasi ke pay_type (bagian 62) -- apakah absensi ini hanya relevan untuk staff bulanan, atau semua tipe.
 
 ===================================================================
-64. FILOSOFI PRODUK — Wajib Diterapkan Nyata di Setiap Langkah (9 Agustus 2026)
+64. FILOSOFI PRODUK — Wajib Diterapkan Nyata di Setiap Langkah (9 Agustus 2026, direvisi 12 Agustus 2026 jadi 6 Rasa)
 ===================================================================
 Status: PRINSIP PERMANEN, bukan fitur/ide biasa. Berlaku untuk SEMUA pengembangan ke depan, dicek di setiap step-by-step (bukan cuma diingat, tapi harus kelihatan wujud nyatanya di kode/UI/teks).
 
-Platform TIDAK punya departemen marketing, sales, copywriter, atau CS secara langsung -- tapi setiap sudut platform harus TERASA seolah-olah ada 5 "rasa" ini, dengan wujud konkret masing-masing:
+Platform TIDAK punya departemen marketing, sales, copywriter, atau CS secara langsung -- tapi setiap sudut platform harus TERASA seolah-olah ada 6 "rasa" ini, dengan wujud konkret masing-masing:
 
 1. Rasa Copywriting -- cara platform "ngomong".
    Wujud nyata: semua teks (notifikasi, tombol, pesan error) ditulis kaya manusia ngomong. Contoh: bukan "Error: submission failed" tapi "Waduh, gagal kekirim. Coba cek koneksi lo dan ulangi ya."
@@ -447,6 +447,14 @@ Platform TIDAK punya departemen marketing, sales, copywriter, atau CS secara lan
    - Fitur yang berpotensi bikin bingung (lock/unlock order, confirm submission, ruang diskusi) dikasih penjelasan singkat di tempat.
    - Kalau ada kesalahan manusia (misal keliru pilih stage), ada jalan yang jelas buat benerin -- undo yang aman, atau minimal panduan "begini cara benerinnya".
 
+6. Rasa Keamanan -- cara platform JAGA kepercayaan orang di dalamnya (ditambahkan 12 Agustus 2026).
+   Wujud nyata:
+   - Jejak tidak bisa dihapus/ditimpa diam-diam -- setiap keputusan penting (pindah kasus, approve darurat, ubah data) tercatat permanen sebagai kejadian (event), bukan field yang bisa diganti tanpa bekas. Koreksi dilakukan dengan catatan baru, bukan menghapus riwayat lama.
+   - Otorisasi jelas siapa boleh apa -- aksi penting (approve, ubah status, resign staff) tidak boleh dilakukan sembarang orang. Selalu ada jawaban eksplisit "siapa yang berhak mencet tombol ini?" di kode, bukan diasumsikan.
+   - Tidak ada "setengah jalan" -- proses yang melibatkan banyak langkah (pindah kasus + kirim notifikasi + update status) harus berhasil bareng atau gagal bareng, tidak boleh nyangkut di tengah.
+   - Data sensitif diperlakukan hati-hati -- foto, nomor HP, ukuran tubuh customer, PIN staff bukan data biasa. Selalu tanya "siapa yang benar-benar perlu lihat ini?" sebelum expose ke siapa pun.
+   - Transparan ke yang berhak, tertutup ke yang tidak berhak -- orang yang terlibat langsung di suatu kasus/order bisa lihat riwayat lengkapnya (sejalan Rasa Sales), tapi orang yang tidak terlibat sama sekali tidak diberi akses dari awal.
+
 SIFAT & CARA EKSEKUSI FILOSOFI INI:
 
 Filosofi 5 rasa ini BUKAN dokumen final, tapi wadah belajar yang hidup dan DUA ARAH. Teja belajar dunia marketing/sales/CS/copywriting bukan cuma dari luar, tapi juga DARI platform ini sendiri -- tiap kali filosofi ini dieksekusi nyata, itu jadi bahan belajar buat Teja juga, bukan cuma output buat platform.
@@ -458,7 +466,7 @@ Cara eksekusi (WAJIB, bukan sekadar checklist di akhir): setiap kali Claude meng
 
 Alurnya dua arah dan terus berputar: Teja belajar dari luar -> dituangkan ke filosofi ini -> filosofi dieksekusi nyata ke platform -> proses eksekusi itu sendiri jadi bahan belajar balik buat Teja -> filosofi makin kaya. Bukan filosofi statis yang ditulis sekali lalu berhenti.
 
-ATURAN WAJIB: setiap kali mengerjakan fitur baru (endpoint, UI, notifikasi, dashboard, pesan error, apapun) -- cek balik ke 5 filosofi ini SEBELUM dianggap selesai. Tidak harus semua 5 diterapkan sekaligus di 1 fitur, tapi harus ada minimal 1-2 yang kelihatan wujud nyatanya.
+ATURAN WAJIB: setiap kali mengerjakan fitur baru (endpoint, UI, notifikasi, dashboard, pesan error, apapun) -- cek balik ke 6 filosofi ini SEBELUM dianggap selesai. Tidak harus semua 6 diterapkan sekaligus di 1 fitur, tapi harus ada minimal 1-2 yang kelihatan wujud nyatanya.
 
 CATATAN PENERAPAN KE KODE LAMA: filosofi ini WAJIB untuk kerjaan baru mulai sekarang. Kode/teks/UI yang sudah ada sebelumnya TIDAK perlu dirombak buru-buru -- masuk daftar "polish pass" yang dikerjakan belakangan setelah semua next steps aktif (bagian 57 dst) selesai, bukan mendesak dan bukan diabaikan.
 
