@@ -922,3 +922,52 @@ Yang belum kejawab (buat sesi berikutnya, TIDAK PERLU DIJAWAB SEKARANG):
 - Prioritas eksekusi relatif ke next steps aktif sekarang (Lapis 2 ruang diskusi masih jalan duluan).
 - Detail teknis org_level (enum tetap vs text bebas per tenant?), struktur modul PPIC, dan mekanisme audit QC independen.
 - Apakah staff_hr_records dan shift ini digarap bareng struktur organisasi ini, atau tetap next steps terpisah sesuai bagian 62-63 yang udah ada.
+
+===================================================================
+BAGIAN 78 — EKSEKUSI: RLS Staff-Scoped, discrepancy_thread_messages & discrepancy_thread_photos (12 Agustus 2026)
+===================================================================
+Status: Lanjutan Lapis 2 (bagian 75-76). Tabel siap, RLS teruji ketat (bukan cuma tenant-isolation), belum ada endpoint yang pakai.
+
+Temuan penting: semua RLS lama (termasuk discrepancy_cases bagian 76) cuma isolasi per-tenant, BELUM ada yang cek staff mana yang login -- artinya sebelumnya SEMUA staff di tenant bisa baca SEMUA discrepancy_cases, bukan cuma pihak terlibat. Diperbaiki sesi ini.
+
+Pola baru -- app.staff_id (mirip app.tenant_id yang sudah ada):
+- Helper withTenantAndStaff(client, tenantId, staffId, fn) ditambahkan di db.js (commit 693a567) -- set_config('app.staff_id', ...) scoped ke transaksi, sama pola withTenant() yang sudah ada.
+- Endpoint LAMA yang masih pakai withTenant() biasa TIDAK terpengaruh -- app.staff_id mereka NULL, RLS yang cek staff_id otomatis fail-closed (0 rows), bukan fail-open.
+- Endpoint BARU (thread diskusi, discrepancy_cases) WAJIB pakai withTenantAndStaff() begitu ditulis -- kalau masih withTenant() biasa, staff yang berhak pun akan dapat 0 rows.
+
+RLS discrepancy_cases (migration strict_rls_discrepancy_cases) -- diperketat:
+- Policy lama tenant_isolation (cuma cek tenant) DIGANTI tenant_and_party_isolation
+- Akses cuma untuk: submitter_staff_id, receiver_staff_id, mediator_id (lewat tenant_mediators), atau staff dengan role='owner'
+- TIDAK ADA fallback longgar kalau app.staff_id kosong -- staff_id kosong = 0 akses (fail-closed penuh, sesuai keputusan "jangan kasih kelonggaran")
+- Cek dulu sebelum apply: grep discrepancy_cases di semua *.js -- HASIL KOSONG (belum ada endpoint pakai tabel ini), jadi aman langsung ketat tanpa risiko break kode existing
+- Teruji via psql app_user (bukan MCP yang bypass RLS): submitter bisa lihat kasusnya (1 row), staff tidak terlibat 0 rows, owner tetap bisa lihat walau bukan pihak langsung (1 row) -- 3 skenario lolos semua
+
+Tabel discrepancy_thread_messages (migration create_discrepancy_thread_messages):
+- id, tenant_id, discrepancy_case_id (FK), sender_staff_id (FK staff, nullable -- untuk row otomatis sistem)
+- message_type: text/photo/call_log/mediator_action/correction
+- action_subtype (khusus mediator_action): joined_case/summoned_owner
+- content, call_to_staff_id (khusus call_log), target_staff_id (khusus mediator_action)
+- corrects_message_id (FK ke id tabel sendiri, khusus type correction -- cara "ralat" tanpa hapus riwayat, sesuai Rasa Keamanan bagian 64: koreksi = catatan baru, bukan menghapus yang lama)
+- Index (discrepancy_case_id, created_at) untuk query linimasa
+- RLS: join ke discrepancy_cases, pola sama persis (submitter/receiver/mediator/owner)
+- INSERT-ONLY: REVOKE UPDATE, DELETE dari app_user di level database (bukan cuma aturan aplikasi)
+- Teruji via app_user: INSERT sukses, UPDATE ditolak "permission denied for table" -- immutability beneran ditegakkan
+
+Tabel discrepancy_thread_photos (migration create_discrepancy_thread_photos) -- KEPUTUSAN DESAIN BARU:
+- AWALNYA direncanakan reuse tabel photo yang sudah ada (production_stage_photos), TAPI dicek strukturnya: production_job_id dan stage NOT NULL, terikat erat ke konteks submission stage -- gak natural dipaksa buat foto ruang diskusi.
+- KEPUTUSAN FINAL: bikin tabel foto generic terpisah, discrepancy_thread_photos -- id, tenant_id, message_id (FK discrepancy_thread_messages), storage_path, uploaded_by_staff_id, uploaded_at. Konsepnya "kirim foto kayak di WA" (analogi dari Teja) -- gak terikat ke stage produksi, murni nempel ke pesan thread.
+- RLS: join balik ke discrepancy_thread_messages -> discrepancy_cases, pola sama.
+- INSERT-ONLY, sama seperti discrepancy_thread_messages.
+
+Security advisor (get_advisors): 0 warning di semua migration sesi ini.
+
+Data testing dibuat & dibersihkan lagi setelah tiap verifikasi (tidak nyangkut permanen).
+
+Ide relevan (dicatat, belum ditindaklanjuti): karena discrepancy_thread_photos sekarang generic (tidak terikat stage) dan sama-sama simpan storage_path seperti production_stage_photos, kedua tabel foto ini bisa nanti divalidasi lewat 1 modul integrity check yang sama (EXIF/perceptual hash, saran BTOS bagian 68 poin 2) -- bukan 2 implementasi terpisah.
+
+Next steps:
+1. Endpoint POST kirim pesan/foto ke thread -- WAJIB pakai withTenantAndStaff(), bukan withTenant() biasa (lihat pola di atas)
+2. Endpoint insert otomatis mediator_action/joined_case saat discrepancy_cases dibuat (dalam transaksi sama, atomik)
+3. Function/endpoint notifikasi cepat (bagian 73) -- trigger dashboard+WA terutama saat summoned_owner
+4. Tabel tenant_trusted_staff (bagian 72, kasus stok kosong) -- belum dikerjakan
+5. Function/endpoint logic resign & reassignment mediator (bagian 74) -- baru skema tabel, logic belum jadi kode
