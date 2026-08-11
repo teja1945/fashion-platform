@@ -626,3 +626,20 @@ Next steps (urutan prioritas untuk sesi berikutnya):
 3. Cek ulang log PM2 (pm2 logs fashion-platform) untuk pastikan tidak ada error baru yang nyangkut dari sesi testing ini.
 4. Lanjut endpoint 3-5 (discrepancy reason, eskalasi, resolve) -- BARU bisa dikerjakan dengan baik setelah Lapis 2 (skema tabel ruang diskusi) dirancang, karena endpoint 3-5 secara desain nyambung ke hasil diskusi tersebut (lihat bagian 57 VERSI FINAL).
 5. Rancang skema tabel Lapis 2 (ruang diskusi: threads, participants, messages, tombol panggil mediator) -- belum ada sama sekali, next steps besar berikutnya.
+
+**Progress (11 Agustus 2026): Skenario wrap-around endpoint confirm dinamis SUDAH TERUJI**
+
+Status: Melanjutkan next steps prioritas 1 dari catatan sesi sebelumnya. Skenario wrap-around (submission dari stage finishing dikonfirmasi oleh staff gudang) sudah diuji dan LOLOS.
+
+Langkah test: Staff Packing Demo (assigned_stage finishing) submit qty_submitted=50 di stage finishing untuk job demo (25352257-4cff-4377-85d7-2a63b05146fe, saat itu posisi job sudah di stage finishing dari testing sesi sebelumnya). Submission masuk PENDING_QC (id f257a83e-b196-46ef-8768-ef78d6b51605). Staff Gudang Demo (id aa322173-0c47-46ec-a87d-9dc120374f5f, dibuat sesi sebelumnya) berhasil confirm submission itu -- qty_submitted=qty_confirmed (50=50), status jadi CONFIRMED. Job otomatis maju ke stage 'shipped' (stage terminal, akhir siklus).
+
+Ini membuktikan logic wrap-around (next_order >= maxOrder -> confirmer diambil dari is_gudang_stage=true) benar-benar berfungsi, bukan cuma logic normal linear yang kebetulan lolos test qc->finishing sebelumnya.
+
+Kesimpulan: Endpoint 2 confirm dinamis (bagian 57/61) SEKARANG DIANGGAP SELESAI DAN TERUJI PENUH -- baik skenario normal (qc->finishing) maupun skenario wrap-around (finishing->gudang) sudah diverifikasi jalan dengan benar, plus skenario penolakan staff yang salah stage. Job demo sudah mencapai stage 'shipped' (akhir siklus penuh, dari qc sampai shipped).
+
+Next steps (updated, urutan prioritas):
+1. Hapus atau simpan keputusan soal file server.js.bak-before-endpoint2-rewrite (masih pending dari sesi sebelumnya).
+2. Cek ulang log PM2 untuk pastikan tidak ada error baru dari testing wrap-around ini.
+3. Lanjut endpoint 3-5 (discrepancy reason, eskalasi, resolve) -- BARU bisa dikerjakan dengan baik setelah Lapis 2 (skema tabel ruang diskusi) dirancang, karena endpoint 3-5 secara desain nyambung ke hasil diskusi tersebut (lihat bagian 57 VERSI FINAL).
+4. Rancang skema tabel Lapis 2 (ruang diskusi: threads, participants, messages, tombol panggil mediator) -- belum ada sama sekali, next steps besar berikutnya.
+5. Kalau mau siklus produksi baru untuk testing lanjutan (job demo sekarang sudah di stage shipped, akhir siklus), perlu bikin job baru atau cari cara reset job demo ke stage awal untuk testing ulang.
