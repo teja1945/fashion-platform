@@ -42,4 +42,25 @@ async function withTenant(client, tenantId, fn) {
   }
 }
 
-module.exports = { pool, withTenant, getActiveTenantIds };
+// Sama seperti withTenant(), tapi juga set app.staff_id -- dipakai
+// khusus endpoint yang butuh RLS cek "staff ini termasuk pihak
+// terlibat" (misal ruang diskusi discrepancy), bukan cuma isolasi
+// tenant biasa. Endpoint lama yang pakai withTenant() biasa TIDAK
+// terpengaruh -- app.staff_id mereka otomatis kosong/NULL, jadi
+// policy yang cek staff_id fail-closed (aman by default), bukan
+// fail-open.
+async function withTenantAndStaff(client, tenantId, staffId, fn) {
+  await client.query("BEGIN");
+  try {
+    await client.query(`SELECT set_config('app.tenant_id', $1, true)`, [tenantId]);
+    await client.query(`SELECT set_config('app.staff_id', $1, true)`, [staffId]);
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  }
+}
+
+module.exports = { pool, withTenant, withTenantAndStaff, getActiveTenantIds };
