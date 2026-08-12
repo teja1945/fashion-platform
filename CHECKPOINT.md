@@ -1119,3 +1119,33 @@ bukan ditambal belakangan setelah kode ditulis. Konsisten sama prinsip
 satu-langkah-satu-waktu yang sudah jadi workflow dari awal proyek ini --
 "lengkap dulu semua yang dibutuhkan, baru eksekusi" berlaku juga ke level
 teknis cek dependency, bukan cuma ke keputusan desain besar.
+
+===================================================================
+BAGIAN 83 — EKSEKUSI: Endpoint POST /v1/discrepancy-cases/:id/summon-owner (13 Agustus 2026, SELESAI & TERUJI)
+===================================================================
+Status: Next step notifikasi cepat (bagian 73/78) dimulai dari sini. Tabel
+notifications dibuat lebih dulu (generic, trigger_type, RLS insert-scoped
+via submitter/receiver/mediator atau owner). Kolom staff.phone_number juga
+ditambah sesi ini (prasyarat link WA, belum dipakai di endpoint ini).
+
+Endpoint: submitter/receiver/mediator kasus manggil owner -- insert pesan
+mediator_action/summoned_owner ke thread + insert notifications ke SEMUA
+owner aktif tenant, 1 transaksi (withTenantAndStaff), broadcast realtime
+di luar transaksi (pola sama seperti endpoint messages).
+
+Testing (3 skenario, semua LOLOS):
+1. Submitter manggil owner -> pesan ter-insert, 1 owner ter-notifikasi,
+   record di tabel notifications benar (trigger_type, source, recipient)
+2. Staff gak terlibat coba manggil -> 404 (RLS staff-scoped, sama pola
+   endpoint messages)
+3. Kasus RESOLVED -> 409, ditolak sebelum sampai ke logic manapun
+
+Next steps:
+1. Endpoint GET buat staff cek notifikasi miliknya sendiri (+ tandai dibaca)
+2. Rakit wa.me link dari phone_number staff (disimpan nomor mentah, link
+   dirakit pas ditampilkan -- bukan disimpan jadi link jadi)
+3. Extend trigger_type + RLS insert notifications buat jenis lain (stok
+   kosong bagian 72, darurat staff bagian 73) -- saat ini baru cover
+   discrepancy_cases
+4. Tabel tenant_trusted_staff (Bagian 72)
+5. Logic resign & reassignment mediator (Bagian 74)
