@@ -1002,3 +1002,30 @@ Next steps:
 3. Notifikasi cepat (dashboard+WA) terutama saat summoned_owner
 4. Tabel tenant_trusted_staff (Bagian 72)
 5. Logic resign & reassignment mediator (Bagian 74)
+
+===================================================================
+BAGIAN 80 — EKSEKUSI: Real-time broadcast WebSocket per-kasus discrepancy (12 Agustus 2026, SELESAI & TERUJI)
+===================================================================
+Status: Next step #1 dari Bagian 79 (broadcast real-time kayak WA) SELESAI.
+
+Perubahan:
+- verifyClient WebSocket sekarang baca token staff dari query param (?token=...), validasi ke sessionMap yang sama dengan REST, tempelin ws.staffId dan ws.role ke koneksi
+- Fungsi broadcastToDiscrepancyCase(tenantId, caseRow, mediatorStaffId, payload): kirim payload cuma ke koneksi WS yang tenant-nya sama DAN (staffId submitter/receiver/mediator ATAU role owner)
+- Dipanggil di endpoint POST /v1/discrepancy-cases/:id/messages setelah insert sukses, di luar transaksi DB
+
+Bug ditemukan & diperbaiki (penting, arsitektural): broadcastToDiscrepancyCase awalnya query tenant_mediators pakai pool.query() langsung tanpa app.tenant_id ke-set -- RLS tabel itu butuh session variable, dan pool.query() bisa dapet koneksi "kosong" dari pool sehingga current_setting jadi string kosong, gagal cast ke uuid. Error muncul TIDAK KONSISTEN tergantung koneksi pool mana yang kepakai.
+Perbaikan: mediatorStaffId sekarang diambil DI DALAM transaksi withTenantAndStaff yang sudah ada (yang dipakai juga buat cek otorisasi call_log), lalu di-passing ke broadcastToDiscrepancyCase sebagai parameter -- fungsi broadcast jadi tidak perlu query database sama sekali lagi.
+Pelajaran: jangan pernah query tabel yang RLS-protected pakai pool.query() langsung di luar withTenant/withTenantAndStaff -- selalu lewat transaksi yang sudah tenant-scoped, atau kalau butuh data dari transaksi lain, ambil sekalian di transaksi yang sudah ada.
+
+Testing (server.js, via ws.js client Node.js manual + curl):
+1. Submitter connect WS + kirim pesan sendiri -> dapet broadcast -> LOLOS
+2. Staff gak terlibat kasus connect WS + staff lain kirim pesan -> TIDAK dapet broadcast -> LOLOS
+3. Stress test 5x kirim beruntun setelah fix -> 0 error di log -> LOLOS
+4. Broadcast tetap jalan normal setelah refactor -> LOLOS
+
+Next steps:
+1. Typing indicator ("sedang mengetik...") per-kasus, real-time lewat WebSocket yang sama -- sinyal sementara, gak disimpan ke DB, auto-clear kalau staff berhenti ngetik beberapa detik
+2. Endpoint auto-insert mediator_action/joined_case saat kasus dibuat
+3. Notifikasi cepat (dashboard+WA) terutama saat summoned_owner
+4. Tabel tenant_trusted_staff (Bagian 72)
+5. Logic resign & reassignment mediator (Bagian 74)

@@ -801,12 +801,19 @@ app.post("/v1/discrepancy-cases/:id/messages", tenantResolver, requireApiKey, re
         throw { statusCode: 409, message: "Kasus ini udah kelar (RESOLVED), gak bisa nambah pesan lagi." };
       }
 
-      if (message_type === "call_log") {
+      // Ambil staff_id mediator di dalam transaksi tenant-scoped ini (bukan query
+      // terpisah tanpa app.tenant_id -- itu penyebab error UUID kosong sebelumnya).
+      let mediatorStaffId = null;
+      if (caseRow.mediator_id) {
         const mediatorCheck = await c.query(
           `SELECT staff_id FROM tenant_mediators WHERE id = $1`,
           [caseRow.mediator_id]
         );
-        const isMediator = mediatorCheck.rows.length > 0 && mediatorCheck.rows[0].staff_id === staffId;
+        if (mediatorCheck.rows.length > 0) mediatorStaffId = mediatorCheck.rows[0].staff_id;
+      }
+
+      if (message_type === "call_log") {
+        const isMediator = mediatorStaffId === staffId;
         if (!isMediator) {
           throw {
             statusCode: 403,
@@ -839,10 +846,19 @@ app.post("/v1/discrepancy-cases/:id/messages", tenantResolver, requireApiKey, re
         photo = photoResult.rows[0];
       }
 
-      return { message, photo };
+      return { message, photo, caseRow, mediatorStaffId };
     });
 
-    res.status(201).json(result);
+    // Broadcast real-time ke staff yang berhak (submitter/receiver/mediator/owner)
+    // yang lagi connect WebSocket -- di luar transaksi DB, gak boleh gagalkan response HTTP
+    broadcastToDiscrepancyCase(req.tenantId, result.caseRow, result.mediatorStaffId, {
+      type: "discrepancy_message",
+      discrepancy_case_id: caseId,
+      message: result.message,
+      photo: result.photo,
+    });
+
+    res.status(201).json({ message: result.message, photo: result.photo });
   } catch (err) {
     if (err.statusCode) {
       return res.status(err.statusCode).json({ error: err.message });
@@ -878,6 +894,26 @@ const wss = new WebSocketServer({
         return;
       }
       info.req.tenantId = rows[0].id;
+
+      // Ambil token staff dari query param (?token=...), sama seperti x-staff-token di REST.
+      // Dibutuhkan supaya WS tau ini staff siapa, buat filter broadcast per-kasus discrepancy.
+      const url = new URL(info.req.url, "http://internal");
+      const token = url.searchParams.get("token");
+      if (!token) {
+        callback(false, 401, "Token staff wajib disertakan (?token=...)");
+        return;
+      }
+      const session = sessionMap.get(token);
+      if (!session || session.expiresAt < Date.now()) {
+        callback(false, 401, "Sesi kadaluarsa, login ulang");
+        return;
+      }
+      if (session.tenantId !== rows[0].id) {
+        callback(false, 403, "Sesi ini bukan untuk tenant ini");
+        return;
+      }
+      info.req.staffId = session.staffId;
+      info.req.role = session.role;
       callback(true);
     } catch (err) {
       console.error("WS tenant validation error:", err.message);
@@ -888,7 +924,31 @@ const wss = new WebSocketServer({
 
 wss.on("connection", (ws, req) => {
   ws.tenantId = req.tenantId;
+  ws.staffId = req.staffId;
+  ws.role = req.role;
 });
+
+// Broadcast pesan thread discrepancy cuma ke staff yang berhak: submitter,
+// receiver, mediator kasus itu, atau siapa saja dengan role owner (Bagian 71/76).
+// Dipanggil setelah pesan sukses di-insert ke DB (lihat endpoint POST .../messages).
+function broadcastToDiscrepancyCase(tenantId, caseRow, mediatorStaffId, payload) {
+  try {
+    const allowedStaffIds = new Set(
+      [caseRow.submitter_staff_id, caseRow.receiver_staff_id, mediatorStaffId].filter(Boolean)
+    );
+    const payloadStr = JSON.stringify(payload);
+    wss.clients.forEach((ws) => {
+      if (ws.readyState !== ws.OPEN || ws.tenantId !== tenantId) return;
+      const isParty = allowedStaffIds.has(ws.staffId);
+      const isOwner = ws.role === "owner";
+      if (isParty || isOwner) {
+        ws.send(payloadStr);
+      }
+    });
+  } catch (err) {
+    console.error("broadcastToDiscrepancyCase error:", err.message);
+  }
+}
 
 async function setupRealtimeRelay() {
   if (!process.env.DATABASE_URL) {
