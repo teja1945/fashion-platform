@@ -1082,3 +1082,23 @@ Next steps:
 2. Voice note: endpoint upload audio + message_type voice_note, boleh dikirim semua pihak (submitter/receiver/mediator)
 3. Tabel tenant_trusted_staff (Bagian 72)
 4. Logic resign & reassignment mediator (Bagian 74)
+
+===================================================================
+Update (13 Agustus 2026): Kolom phone_number ditambahkan ke staff
+===================================================================
+Migration `add_phone_number_to_staff` (via Supabase MCP) — kolom phone_number 
+(text, nullable) + CHECK constraint format '^62[0-9]{8,13}$' (wajib format 
+62xxx kalau diisi, ditolak di level DB kalau format lain). Tujuan: prasyarat 
+buat fitur notifikasi cepat WA (bagian 73) — link wa.me butuh nomor HP staff.
+Keputusan: plaintext dulu, konsisten sama orders.customer_contact yang juga 
+plaintext (bukan standar ganda). 0 security warning setelah migration.
+
+CATATAN buat checklist keamanan (bagian 6, item "Enkripsi data sensitif 
+tambahan (nomor telepon/alamat customer)"): phone_number staff nambah 1 lagi 
+data sensitif yang masih plaintext — item checklist itu sekarang cakupannya 
+BUKAN cuma nomor HP/alamat customer, tapi juga phone_number staff. Perlu 
+direview bareng semua field sensitif ini sekaligus kalau item itu digarap, 
+bukan ditambal satu-satu.
+
+Nomor HP 5 staff testing tenant demo BELUM diisi — perlu diisi manual oleh 
+Teja sebelum notifikasi WA bisa dites end-to-end.
