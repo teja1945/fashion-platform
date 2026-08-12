@@ -5,7 +5,7 @@ const { Client } = require("pg");
 const path = require("path");
 const crypto = require("crypto");
 
-const { pool, withTenant } = require("./db");
+const { pool, withTenant, withTenantAndStaff } = require("./db");
 const { ingestEvent } = require("./ingestion");
 const { startGapMonitor /*, startBundleSplitReconciler */ } = require("./worker");
 const tenantResolver = require("./middleware/tenantResolver");
@@ -758,6 +758,97 @@ app.post("/v1/photos", tenantResolver, requireApiKey, requireStaffSession, async
   } catch (err) {
     console.error("photos error:", err);
     res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /v1/discrepancy-cases/:id/messages
+// Kirim pesan (text/photo/call_log) ke ruang diskusi kasus discrepancy
+app.post("/v1/discrepancy-cases/:id/messages", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
+  const { id: caseId } = req.params;
+  const { message_type, content, call_to_staff_id, storage_path } = req.body || {};
+  const { staffId } = req.staffSession;
+
+  const validTypes = ["text", "photo", "call_log"];
+  if (!validTypes.includes(message_type)) {
+    return res.status(400).json({
+      error: 'Jenis pesan gak valid. Pakai "text", "photo", atau "call_log" ya.'
+    });
+  }
+  if (message_type === "text" && !content) {
+    return res.status(400).json({ error: "Pesan teksnya kosong nih. Isi dulu baru kirim ya." });
+  }
+  if (message_type === "photo" && !storage_path) {
+    return res.status(400).json({
+      error: 'Fotonya mana? Upload dulu lewat /v1/photos, baru kirim storage_path-nya ke sini.'
+    });
+  }
+
+  const client = await pool.connect();
+  try {
+    const result = await withTenantAndStaff(client, req.tenantId, staffId, async (c) => {
+      const caseResult = await c.query(
+        `SELECT id, submitter_staff_id, receiver_staff_id, mediator_id, status
+         FROM discrepancy_cases WHERE id = $1`,
+        [caseId]
+      );
+      if (caseResult.rows.length === 0) {
+        throw { statusCode: 404, message: "Kasusnya gak ketemu, atau lo emang gak terlibat di kasus ini." };
+      }
+      const caseRow = caseResult.rows[0];
+      if (caseRow.status === "RESOLVED") {
+        throw { statusCode: 409, message: "Kasus ini udah kelar (RESOLVED), gak bisa nambah pesan lagi." };
+      }
+
+      if (message_type === "call_log") {
+        const mediatorCheck = await c.query(
+          `SELECT staff_id FROM tenant_mediators WHERE id = $1`,
+          [caseRow.mediator_id]
+        );
+        const isMediator = mediatorCheck.rows.length > 0 && mediatorCheck.rows[0].staff_id === staffId;
+        if (!isMediator) {
+          throw {
+            statusCode: 403,
+            message: "Catatan telpon cuma boleh ditulis penengah, biar netral -- gak bisa dari pihak yang lagi bersengketa."
+          };
+        }
+        if (!call_to_staff_id) {
+          throw { statusCode: 400, message: "Catatan telpon butuh tau ini telpon ke siapa (call_to_staff_id)." };
+        }
+      }
+
+      const msgResult = await c.query(
+        `INSERT INTO discrepancy_thread_messages
+           (tenant_id, discrepancy_case_id, sender_staff_id, message_type, content, call_to_staff_id)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [req.tenantId, caseId, staffId, message_type, content || null, call_to_staff_id || null]
+      );
+      const message = msgResult.rows[0];
+
+      let photo = null;
+      if (message_type === "photo") {
+        const photoResult = await c.query(
+          `INSERT INTO discrepancy_thread_photos
+             (tenant_id, message_id, storage_path, uploaded_by_staff_id)
+           VALUES ($1, $2, $3, $4)
+           RETURNING *`,
+          [req.tenantId, message.id, storage_path, staffId]
+        );
+        photo = photoResult.rows[0];
+      }
+
+      return { message, photo };
+    });
+
+    res.status(201).json(result);
+  } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    console.error("Error POST /v1/discrepancy-cases/:id/messages:", err);
+    res.status(500).json({ error: "Waduh, gagal kekirim. Coba cek koneksi lo dan ulangi ya." });
   } finally {
     client.release();
   }

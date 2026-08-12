@@ -971,3 +971,34 @@ Next steps:
 3. Function/endpoint notifikasi cepat (bagian 73) -- trigger dashboard+WA terutama saat summoned_owner
 4. Tabel tenant_trusted_staff (bagian 72, kasus stok kosong) -- belum dikerjakan
 5. Function/endpoint logic resign & reassignment mediator (bagian 74) -- baru skema tabel, logic belum jadi kode
+
+===================================================================
+BAGIAN 79 — EKSEKUSI: Endpoint POST /v1/discrepancy-cases/:id/messages (12 Agustus 2026, SELESAI & TERUJI)
+===================================================================
+Status: Next step #1 dari Bagian 78 (kirim pesan/foto ke thread diskusi) SELESAI.
+
+Keputusan desain (dari diskusi sesi ini):
+- Teks & foto boleh dikirim SEMUA pihak (submitter, receiver, mediator)
+- call_log CUMA boleh ditulis mediator -- submitter/receiver ditolak 403, biar catatan telpon gak bisa direkayasa sepihak
+- mediator_action/correction TIDAK bisa ditulis lewat endpoint ini sama sekali (ditolak validasi tipe) -- jatah sistem/endpoint terpisah nanti
+- Foto boleh nempel yang udah diupload (storage_path dari /v1/photos), setiap panggilan endpoint dengan message_type=photo jadi pesan baru di linimasa -- jadi bisa nambah foto penguat bukti kapan saja selama diskusi
+
+Bug ditemukan & diperbaiki: withTenantAndStaff belum di-import di server.js (cuma ada di db.js) -- ditambahkan ke destructuring require di baris 8.
+
+Data testing dibuat (dibiarkan untuk testing lanjutan, tidak dihapus):
+- Mediator: Admin Demo terdaftar di tenant_mediators (id f901bbf2-6263-482f-9f4c-eb0efe86f6ca), backup Staff QC Demo (priority 1)
+- Kasus discrepancy testing: id 6a1efc3c-c8bb-4f3a-95b9-ab98dc8d11c9, dari submission jahit yang beneran berstatus DISCREPANCY (bukan data palsu)
+
+Testing (5 skenario, semua LOLOS):
+1. Submitter kirim teks -> berhasil
+2. Submitter kirim call_log -> ditolak 403 (bukan mediator)
+3. Staff gak terlibat kirim pesan -> ditolak 404 (RLS staff-scoped jalan lewat endpoint, bukan cuma psql manual)
+4. Mediator kirim call_log -> berhasil
+5. Kirim message_type=mediator_action -> ditolak 400 (gak bisa nyolong nulis aksi sistem)
+
+Next steps:
+1. Extend WebSocket broadcast per-kasus (real-time, biar staff yang lagi buka thread lihat pesan baru tanpa refresh -- kayak WA)
+2. Endpoint auto-insert mediator_action/joined_case saat kasus dibuat
+3. Notifikasi cepat (dashboard+WA) terutama saat summoned_owner
+4. Tabel tenant_trusted_staff (Bagian 72)
+5. Logic resign & reassignment mediator (Bagian 74)
