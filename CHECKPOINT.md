@@ -1102,3 +1102,20 @@ bukan ditambal satu-satu.
 
 Nomor HP 5 staff testing tenant demo BELUM diisi — perlu diisi manual oleh 
 Teja sebelum notifikasi WA bisa dites end-to-end.
+
+===================================================================
+Update (13 Agustus 2026): Aturan wajib -- cek dependency SEBELUM nulis kode
+===================================================================
+Ditemukan pola kesalahan: Claude nulis kode yang manggil fungsi/helper yang
+sudah ada di server.js (misal broadcastToDiscrepancyCase) TANPA cek dulu
+definisi aslinya -- cuma nebak dari pola endpoint lain yang mirip. Baru
+nyadar belakangan ada dependency yang belum diverifikasi.
+
+ATURAN WAJIB buat semua room/sesi Claude ke depan: sebelum nulis kode baru
+yang manggil fungsi/helper yang sudah ada di codebase (server.js, db.js,
+ingestion.js, dll), WAJIB grep/lihat dulu definisi fungsi itu -- bukan cuma
+endpoint yang polanya mirip. Verifikasi dependency itu langkah PERTAMA,
+bukan ditambal belakangan setelah kode ditulis. Konsisten sama prinsip
+satu-langkah-satu-waktu yang sudah jadi workflow dari awal proyek ini --
+"lengkap dulu semua yang dibutuhkan, baru eksekusi" berlaku juga ke level
+teknis cek dependency, bukan cuma ke keputusan desain besar.
