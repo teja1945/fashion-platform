@@ -551,7 +551,7 @@ app.post("/v1/stage-submissions/:id/confirm", tenantResolver, requireApiKey, req
   const client = await pool.connect();
   let orderId, eventPayload;
   try {
-    const result = await withTenant(client, req.tenantId, async (c) => {
+    const result = await withTenantAndStaff(client, req.tenantId, staffId, async (c) => {
       const staffCheck = await c.query(
         `SELECT id, assigned_stage FROM staff WHERE id = $1 AND is_active = true`,
         [staffId]
@@ -561,7 +561,7 @@ app.post("/v1/stage-submissions/:id/confirm", tenantResolver, requireApiKey, req
       }
 
       const subRes = await c.query(
-        `SELECT id, production_job_id, stage_key, qty_submitted, status
+        `SELECT id, production_job_id, stage_key, qty_submitted, status, submitted_by_staff_id
          FROM stage_quantity_submissions WHERE id = $1`,
         [id]
       );
@@ -624,6 +624,62 @@ app.post("/v1/stage-submissions/:id/confirm", tenantResolver, requireApiKey, req
         [qtyConf, staffId, newStatus, id]
       );
 
+      // Kalau discrepancy, otomatis bikin kasus + assign mediator paling ringan
+      // bebannya (jumlah kasus aktifnya), auto-catat "mediator bergabung" di
+      // linimasa. Mediator WAJIB otomatis dari awal kasus (Bagian 74/78), bukan
+      // opsional. Kalau tidak ada mediator aktif, eskalasi ke admin (kolom
+      // escalated_to_admin sudah ada dari desain awal tabel).
+      let discrepancyCaseId = null;
+      let joinedCaseMessage = null;
+      let mediatorStaffIdForBroadcast = null;
+      let caseRowForBroadcast = null;
+
+      if (newStatus === "DISCREPANCY") {
+        const mediatorLoadRes = await c.query(
+          `SELECT tm.id, tm.staff_id,
+                  COUNT(dc.id) FILTER (WHERE dc.status != 'RESOLVED') AS active_count
+           FROM tenant_mediators tm
+           LEFT JOIN discrepancy_cases dc ON dc.mediator_id = tm.id
+           WHERE tm.tenant_id = $1 AND tm.is_active = true
+           GROUP BY tm.id, tm.staff_id
+           ORDER BY active_count ASC`,
+          [req.tenantId]
+        );
+
+        if (mediatorLoadRes.rows.length === 0) {
+          await c.query(
+            `UPDATE stage_quantity_submissions SET escalated_to_admin = true, escalated_at = now() WHERE id = $1`,
+            [id]
+          );
+          console.error(`WARNING: submission ${id} DISCREPANCY tapi tidak ada mediator aktif -- escalated_to_admin`);
+        } else {
+          const minLoad = mediatorLoadRes.rows[0].active_count;
+          const leastLoaded = mediatorLoadRes.rows.filter((r) => r.active_count === minLoad);
+          const chosen = leastLoaded[Math.floor(Math.random() * leastLoaded.length)];
+
+          const caseInsertRes = await c.query(
+            `INSERT INTO discrepancy_cases
+               (tenant_id, stage_quantity_submission_id, production_job_id, submitter_staff_id, receiver_staff_id, mediator_id, status)
+             VALUES ($1, $2, $3, $4, $5, $6, 'OPEN')
+             RETURNING id, submitter_staff_id, receiver_staff_id, mediator_id, status`,
+            [req.tenantId, id, sub.production_job_id, sub.submitted_by_staff_id, staffId, chosen.id]
+          );
+          const caseRow = caseInsertRes.rows[0];
+          discrepancyCaseId = caseRow.id;
+          caseRowForBroadcast = caseRow;
+          mediatorStaffIdForBroadcast = chosen.staff_id;
+
+          const msgRes = await c.query(
+            `INSERT INTO discrepancy_thread_messages
+               (tenant_id, discrepancy_case_id, sender_staff_id, message_type, action_subtype, content)
+             VALUES ($1, $2, $3, 'mediator_action', 'joined_case', $4)
+             RETURNING *`,
+            [req.tenantId, discrepancyCaseId, chosen.staff_id, "Mediator otomatis bergabung ke kasus ini."]
+          );
+          joinedCaseMessage = msgRes.rows[0];
+        }
+      }
+
       const jobRes = await c.query(`SELECT order_id FROM production_jobs WHERE id = $1`, [sub.production_job_id]);
       if (jobRes.rows.length === 0) {
         return { httpStatus: 404, body: { error: "production_job tidak ditemukan" } };
@@ -631,10 +687,16 @@ app.post("/v1/stage-submissions/:id/confirm", tenantResolver, requireApiKey, req
 
       return {
         httpStatus: 200,
-        body: { id, status: newStatus, qty_submitted: sub.qty_submitted, qty_confirmed: qtyConf },
+        body: {
+          id, status: newStatus, qty_submitted: sub.qty_submitted, qty_confirmed: qtyConf,
+          discrepancy_case_id: discrepancyCaseId,
+        },
         _orderId: jobRes.rows[0].order_id,
         _stageKey: sub.stage_key,
         _newStatus: newStatus,
+        _caseRowForBroadcast: caseRowForBroadcast,
+        _mediatorStaffIdForBroadcast: mediatorStaffIdForBroadcast,
+        _joinedCaseMessage: joinedCaseMessage,
       };
     });
 
@@ -643,6 +705,18 @@ app.post("/v1/stage-submissions/:id/confirm", tenantResolver, requireApiKey, req
     }
 
     orderId = result._orderId;
+
+    if (result._caseRowForBroadcast && result._joinedCaseMessage) {
+      broadcastToDiscrepancyCase(
+        req.tenantId, result._caseRowForBroadcast, result._mediatorStaffIdForBroadcast,
+        {
+          type: "discrepancy_message",
+          discrepancy_case_id: result._caseRowForBroadcast.id,
+          message: result._joinedCaseMessage,
+          photo: null,
+        }
+      );
+    }
 
     const eventResult = await ingestEvent({
       tenant_id: req.tenantId,

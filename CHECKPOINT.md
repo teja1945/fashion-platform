@@ -1053,3 +1053,32 @@ Next steps:
 2. Notifikasi cepat (dashboard+WA) terutama saat summoned_owner
 3. Tabel tenant_trusted_staff (Bagian 72)
 4. Logic resign & reassignment mediator (Bagian 74)
+
+===================================================================
+BAGIAN 82 — EKSEKUSI: Auto-create discrepancy_cases + assign mediator otomatis (12 Agustus 2026, SELESAI & TERUJI)
+===================================================================
+Status: Next step dari Bagian 81 (endpoint auto-insert mediator_action/joined_case saat kasus dibuat) SELESAI.
+Sekaligus melengkapi gap yang belum ada sejak awal: sebelumnya TIDAK ADA cara otomatis bikin discrepancy_cases -- kasus testing sebelumnya semua dibuat manual lewat psql.
+
+Perubahan di endpoint POST /v1/stage-submissions/:id/confirm:
+- Diganti dari withTenant ke withTenantAndStaff (dibutuhkan supaya insert discrepancy_cases tidak kena tolak RLS -- pola sama seperti fix Bagian 80)
+- Query subRes ditambah kolom submitted_by_staff_id (sebelumnya tidak diambil -- jadi penyebab bug awal, lihat di bawah)
+- Kalau newStatus jadi DISCREPANCY: otomatis assign mediator dengan beban paling ringan (least active cases, status != RESOLVED), random tiebreak kalau ada yang sama beban. Logic ini otomatis "self-healing" -- tidak butuh state tambahan, tetap akurat walau mediator baru masuk/keluar
+- Insert discrepancy_cases baru (submitter = yang submit stage sebelumnya, receiver = staff yang confirm/QC sekarang, mediator = hasil pemilihan otomatis, status OPEN)
+- Auto-insert discrepancy_thread_messages: message_type=mediator_action, action_subtype=joined_case, sender_staff_id=mediator, content "Mediator otomatis bergabung ke kasus ini."
+- Broadcast real-time pesan joined_case itu lewat broadcastToDiscrepancyCase yang sudah ada (Bagian 80) -- staff yang connect WS langsung lihat mediator baru gabung
+- FALLBACK: kalau tidak ada mediator aktif sama sekali, TIDAK gagalkan proses confirm -- submission tetap DISCREPANCY tapi escalated_to_admin=true dan escalated_at diisi (kolom sudah ada dari desain awal tabel, pas dipakai untuk skenario ini)
+
+Bug ditemukan & diperbaiki: query subRes awalnya cuma SELECT id, production_job_id, stage_key, qty_submitted, status -- tidak termasuk submitted_by_staff_id, sehingga insert discrepancy_cases gagal (null value violates not-null constraint). Diperbaiki dengan menambahkan kolom itu ke query.
+
+Testing (2 skenario end-to-end via submission+confirm nyata, semua LOLOS):
+1. Submission baru -> confirm dengan qty beda -> DISCREPANCY -> discrepancy_case_id terisi otomatis -> data submitter/receiver/mediator benar -> pesan joined_case ter-insert dengan benar
+2. Mediator dinonaktifkan sementara -> submission+confirm lagi -> DISCREPANCY -> discrepancy_case_id null -> escalated_to_admin=true, escalated_at terisi -> proses confirm TIDAK gagal
+
+Data testing: job 25352257-4cff-4377-85d7-2a63b05146fe di-reset current_stage ke jahit dua kali untuk keperluan testing berulang (job demo, aman dipakai ulang). Kasus baru dari test 1: d2d01352-339c-479a-a409-0fe7d10af16d.
+
+Next steps:
+1. Notifikasi cepat (dashboard+WA) terutama saat summoned_owner
+2. Voice note: endpoint upload audio + message_type voice_note, boleh dikirim semua pihak (submitter/receiver/mediator)
+3. Tabel tenant_trusted_staff (Bagian 72)
+4. Logic resign & reassignment mediator (Bagian 74)
