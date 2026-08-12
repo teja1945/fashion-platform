@@ -926,12 +926,93 @@ wss.on("connection", (ws, req) => {
   ws.tenantId = req.tenantId;
   ws.staffId = req.staffId;
   ws.role = req.role;
+  ws.typingCaseId = null; // kasus mana yang lagi diketik staff ini, kalau ada
+
+  ws.on("message", async (raw) => {
+    let data;
+    try {
+      data = JSON.parse(raw.toString());
+    } catch {
+      return; // abaikan pesan yang bukan JSON valid
+    }
+    if (data.type === "typing_start" || data.type === "typing_stop") {
+      await handleTypingSignal(ws, data.type, data.discrepancy_case_id);
+    }
+  });
+
+  ws.on("close", () => {
+    // Jaring pengaman: kalau staff lagi "mengetik" terus koneksinya putus
+    // (nutup app dsb), otomatis kirim typing_stop biar gak nyangkut selamanya.
+    if (ws.typingCaseId) {
+      const caseId = ws.typingCaseId;
+      getCaseAuthContext(ws.tenantId, ws.staffId, caseId)
+        .then((ctx) => {
+          if (ctx) {
+            broadcastToDiscrepancyCase(
+              ws.tenantId, ctx.caseRow, ctx.mediatorStaffId,
+              { type: "typing_stop", discrepancy_case_id: caseId, staff_id: ws.staffId },
+              ws.staffId
+            );
+          }
+        })
+        .catch((err) => console.error("typing cleanup error:", err.message));
+    }
+  });
 });
+
+// Ambil data kasus + mediator staff_id, DI DALAM transaksi tenant+staff-scoped
+// (pola aman dari bug RLS Bagian 80). Dipakai buat validasi sinyal typing.
+async function getCaseAuthContext(tenantId, staffId, caseId) {
+  const client = await pool.connect();
+  try {
+    return await withTenantAndStaff(client, tenantId, staffId, async (c) => {
+      const caseResult = await c.query(
+        `SELECT id, submitter_staff_id, receiver_staff_id, mediator_id, status
+         FROM discrepancy_cases WHERE id = $1`,
+        [caseId]
+      );
+      if (caseResult.rows.length === 0) return null;
+      const caseRow = caseResult.rows[0];
+      let mediatorStaffId = null;
+      if (caseRow.mediator_id) {
+        const medResult = await c.query(
+          `SELECT staff_id FROM tenant_mediators WHERE id = $1`,
+          [caseRow.mediator_id]
+        );
+        if (medResult.rows.length > 0) mediatorStaffId = medResult.rows[0].staff_id;
+      }
+      return { caseRow, mediatorStaffId };
+    });
+  } finally {
+    client.release();
+  }
+}
+
+// Proses sinyal typing_start/typing_stop dari client, validasi otorisasi,
+// terus terusin ke staff lain yang berhak (kecuali si pengirim sendiri).
+async function handleTypingSignal(ws, type, discrepancyCaseId) {
+  if (!discrepancyCaseId) return;
+  try {
+    const ctx = await getCaseAuthContext(ws.tenantId, ws.staffId, discrepancyCaseId);
+    if (!ctx) return; // gak berhak atau kasus gak ketemu -- diamkan saja, jangan bocorkan info
+
+    ws.typingCaseId = type === "typing_start" ? discrepancyCaseId : null;
+
+    broadcastToDiscrepancyCase(
+      ws.tenantId, ctx.caseRow, ctx.mediatorStaffId,
+      { type, discrepancy_case_id: discrepancyCaseId, staff_id: ws.staffId },
+      ws.staffId
+    );
+  } catch (err) {
+    console.error("handleTypingSignal error:", err.message);
+  }
+}
 
 // Broadcast pesan thread discrepancy cuma ke staff yang berhak: submitter,
 // receiver, mediator kasus itu, atau siapa saja dengan role owner (Bagian 71/76).
-// Dipanggil setelah pesan sukses di-insert ke DB (lihat endpoint POST .../messages).
-function broadcastToDiscrepancyCase(tenantId, caseRow, mediatorStaffId, payload) {
+// excludeStaffId opsional: kecualikan 1 staff (dipakai typing indicator biar
+// pengirim gak lihat "dirinya sendiri lagi mengetik").
+function broadcastToDiscrepancyCase(tenantId, caseRow, mediatorStaffId, payload, excludeStaffId) {
   try {
     const allowedStaffIds = new Set(
       [caseRow.submitter_staff_id, caseRow.receiver_staff_id, mediatorStaffId].filter(Boolean)
@@ -939,6 +1020,7 @@ function broadcastToDiscrepancyCase(tenantId, caseRow, mediatorStaffId, payload)
     const payloadStr = JSON.stringify(payload);
     wss.clients.forEach((ws) => {
       if (ws.readyState !== ws.OPEN || ws.tenantId !== tenantId) return;
+      if (excludeStaffId && ws.staffId === excludeStaffId) return;
       const isParty = allowedStaffIds.has(ws.staffId);
       const isOwner = ws.role === "owner";
       if (isParty || isOwner) {

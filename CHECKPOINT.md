@@ -1029,3 +1029,27 @@ Next steps:
 3. Notifikasi cepat (dashboard+WA) terutama saat summoned_owner
 4. Tabel tenant_trusted_staff (Bagian 72)
 5. Logic resign & reassignment mediator (Bagian 74)
+
+===================================================================
+BAGIAN 81 — EKSEKUSI: Typing indicator ("sedang mengetik...") per-kasus (12 Agustus 2026, SELESAI & TERUJI)
+===================================================================
+Status: Next step #1 dari Bagian 80 (indikator sedang mengetik kayak WA) SELESAI.
+
+Perubahan:
+- WS connection sekarang dengar pesan masuk dari client (ws.on("message")), terima 2 jenis sinyal: typing_start dan typing_stop, keduanya butuh discrepancy_case_id
+- Fungsi getCaseAuthContext(tenantId, staffId, caseId): ambil caseRow + mediatorStaffId dalam transaksi withTenantAndStaff yang aman (pola sama seperti fix Bagian 80, tidak query RLS-protected table di luar transaksi)
+- Fungsi handleTypingSignal: validasi staff berhak di kasus itu (lewat getCaseAuthContext), lalu terusin sinyal ke pihak lain yang berhak
+- broadcastToDiscrepancyCase ditambah parameter excludeStaffId opsional -- dipakai supaya pengirim sinyal tidak menerima balik sinyalnya sendiri
+- Jaring pengaman: ws.on("close") otomatis kirim typing_stop kalau staff sedang "typingCaseId" aktif saat koneksi terputus (nutup app, sinyal HP hilang, dsb) -- supaya indikator tidak nyangkut selamanya di layar staff lain
+- Tidak ada data yang disimpan ke database -- sinyal ini murni lewat (ephemeral), sesuai desain awal
+
+Testing (3 skenario via WebSocket client Node.js manual, semua LOLOS):
+1. Typing signal end-to-end: typing_start dan typing_stop terkirim dan diterima pihak lain yang berhak
+2. Jaring pengaman disconnect: typer di-terminate paksa setelah typing_start tanpa kirim typing_stop -- listener tetap terima typing_stop otomatis dari server
+3. Isolasi: staff yang tidak terlibat kasus (connect WS) TIDAK menerima sinyal apa pun, walau staff lain aktif mengetik
+
+Next steps:
+1. Endpoint auto-insert mediator_action/joined_case saat kasus dibuat
+2. Notifikasi cepat (dashboard+WA) terutama saat summoned_owner
+3. Tabel tenant_trusted_staff (Bagian 72)
+4. Logic resign & reassignment mediator (Bagian 74)
