@@ -944,6 +944,140 @@ app.post("/v1/discrepancy-cases/:id/messages", tenantResolver, requireApiKey, re
   }
 });
 
+// POST /v1/discrepancy-cases/:id/summon-owner
+// Panggil owner ke kasus discrepancy yang lagi jalan -- dari pihak yang terlibat
+app.post("/v1/discrepancy-cases/:id/summon-owner", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
+  const { id: caseId } = req.params;
+  const { staffId } = req.staffSession;
+
+  const client = await pool.connect();
+  try {
+    const result = await withTenantAndStaff(client, req.tenantId, staffId, async (c) => {
+      const caseResult = await c.query(
+        `SELECT dc.id, dc.submitter_staff_id, dc.receiver_staff_id, dc.mediator_id, dc.status,
+                tm.staff_id AS mediator_staff_id, s.full_name AS caller_name
+         FROM discrepancy_cases dc
+         LEFT JOIN tenant_mediators tm ON tm.id = dc.mediator_id
+         JOIN staff s ON s.id = $2
+         WHERE dc.id = $1`,
+        [caseId, staffId]
+      );
+      if (caseResult.rows.length === 0) {
+        throw { statusCode: 404, message: "Kasusnya gak ketemu, atau lo emang gak terlibat di kasus ini." };
+      }
+      const caseRow = caseResult.rows[0];
+
+      if (caseRow.status === "RESOLVED") {
+        throw { statusCode: 409, message: "Kasus ini udah kelar (RESOLVED), gak perlu panggil owner lagi." };
+      }
+
+      const isInvolved = [caseRow.submitter_staff_id, caseRow.receiver_staff_id, caseRow.mediator_staff_id].includes(staffId);
+      if (!isInvolved) {
+        throw { statusCode: 403, message: "Cuma pihak yang terlibat di kasus ini yang bisa manggil owner." };
+      }
+
+      const msgResult = await c.query(
+        `INSERT INTO discrepancy_thread_messages
+           (tenant_id, discrepancy_case_id, sender_staff_id, message_type, action_subtype, content)
+         VALUES ($1, $2, $3, 'mediator_action', 'summoned_owner', $4)
+         RETURNING *`,
+        [req.tenantId, caseId, staffId, `${caseRow.caller_name} minta bantuan owner buat kasus ini.`]
+      );
+      const message = msgResult.rows[0];
+
+      const ownersResult = await c.query(
+        `SELECT id FROM staff WHERE tenant_id = $1 AND role = 'owner' AND is_active = true`,
+        [req.tenantId]
+      );
+
+      for (const owner of ownersResult.rows) {
+        await c.query(
+          `INSERT INTO notifications
+             (tenant_id, recipient_staff_id, trigger_type, source_table, source_id, title, body)
+           VALUES ($1, $2, 'discrepancy_summoned_owner', 'discrepancy_cases', $3, $4, $5)`,
+          [
+            req.tenantId,
+            owner.id,
+            caseId,
+            "Ada yang butuh bantuan kamu",
+            `${caseRow.caller_name} manggil kamu buat bantu selesaikan kasus diskusi yang lagi jalan. Yuk dicek sebelum kelamaan nyangkut.`
+          ]
+        );
+      }
+
+      return { message, caseRow, mediatorStaffId: caseRow.mediator_staff_id, ownersNotified: ownersResult.rows.length };
+    });
+
+    broadcastToDiscrepancyCase(req.tenantId, result.caseRow, result.mediatorStaffId, {
+      type: "discrepancy_message",
+      discrepancy_case_id: caseId,
+      message: result.message,
+      photo: null,
+    });
+
+    res.status(201).json({ message: result.message, ownersNotified: result.ownersNotified });
+  } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    console.error("Error POST /v1/discrepancy-cases/:id/summon-owner:", err);
+    res.status(500).json({ error: "Waduh, gagal manggil owner. Coba cek koneksi lo dan ulangi ya." });
+  } finally {
+    client.release();
+  }
+});
+
+// GET /v1/notifications
+// Ambil notifikasi milik staff yang lagi login (RLS otomatis batasi punya sendiri)
+app.get("/v1/notifications", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
+  const { staffId } = req.staffSession;
+  const client = await pool.connect();
+  try {
+    const result = await withTenantAndStaff(client, req.tenantId, staffId, (c) =>
+      c.query(
+        `SELECT id, trigger_type, source_table, source_id, title, body, read_at, created_at
+         FROM notifications
+         ORDER BY created_at DESC
+         LIMIT 50`
+      )
+    );
+    const unreadCount = result.rows.filter((n) => !n.read_at).length;
+    res.json({ notifications: result.rows, unread_count: unreadCount });
+  } catch (err) {
+    console.error("notifications list error:", err);
+    res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
+  }
+});
+
+// PATCH /v1/notifications/:id/read
+// Tandai 1 notifikasi sudah dibaca
+app.patch("/v1/notifications/:id/read", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
+  const { id: notifId } = req.params;
+  const { staffId } = req.staffSession;
+  const client = await pool.connect();
+  try {
+    const result = await withTenantAndStaff(client, req.tenantId, staffId, (c) =>
+      c.query(
+        `UPDATE notifications SET read_at = now()
+         WHERE id = $1 AND read_at IS NULL
+         RETURNING id, read_at`,
+        [notifId]
+      )
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Notifikasi gak ketemu, bukan milik lo, atau udah pernah ditandai dibaca." });
+    }
+    res.json({ ok: true, notification: result.rows[0] });
+  } catch (err) {
+    console.error("notification mark-read error:", err);
+    res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
+  }
+});
+
 // =====================================================================
 // REALTIME RELAY
 // TODO: nama channel "order_state_changed" belum diverifikasi ulang --

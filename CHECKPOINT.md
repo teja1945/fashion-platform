@@ -1149,3 +1149,30 @@ Next steps:
    discrepancy_cases
 4. Tabel tenant_trusted_staff (Bagian 72)
 5. Logic resign & reassignment mediator (Bagian 74)
+
+===================================================================
+BAGIAN 84 — EKSEKUSI: GET /v1/notifications + PATCH /v1/notifications/:id/read (13 Agustus 2026, SELESAI & TERUJI)
+===================================================================
+Endpoint staff cek notifikasi milik sendiri (RLS otomatis batasi punya
+sendiri via withTenantAndStaff), 50 terbaru + unread_count. PATCH tandai
+1 notifikasi dibaca (read_at), 404 kalau bukan milik sendiri/udah dibaca.
+
+Testing (semua LOLOS):
+1. GET oleh staff non-owner (Staff Jahit) -> tidak ada notif miliknya
+2. GET oleh Admin Demo (owner) -> 1 notif dari summon-owner test bagian 83,
+   data lengkap benar (trigger_type, source, title, body, unread_count: 1)
+3. PATCH read -> read_at terisi, response sesuai
+
+Catatan: muncul DeprecationWarning baru di log pm2 -- "Calling client.query()
+when the client is already executing a query" -- kemungkinan dari worker/
+realtime relay, BUKAN dari endpoint notifications (endpoint ini pool.connect()
+sendiri per-request). Belum diselidiki, dicatat untuk direview nanti.
+
+Next steps:
+1. Rakit wa.me link dari phone_number staff (nomor mentah disimpan, link
+   dirakit saat ditampilkan)
+2. Extend trigger_type + RLS insert notifications buat jenis lain (stok
+   kosong bagian 72, darurat staff bagian 73)
+3. Selidiki DeprecationWarning client.query() di atas
+4. Tabel tenant_trusted_staff (Bagian 72)
+5. Logic resign & reassignment mediator (Bagian 74)
