@@ -1176,3 +1176,27 @@ Next steps:
 3. Selidiki DeprecationWarning client.query() di atas
 4. Tabel tenant_trusted_staff (Bagian 72)
 5. Logic resign & reassignment mediator (Bagian 74)
+
+===================================================================
+BAGIAN 85 — PERBAIKAN: summon-owner dibatasi cuma mediator (13 Agustus 2026)
+===================================================================
+Ditemukan kesalahan desain di endpoint summon-owner (bagian 83): awalnya
+submitter/receiver/mediator semua boleh manggil owner. Ini SALAH -- gak
+konsisten sama prinsip yang udah ada dari bagian 71 (call_log cuma boleh
+ditulis mediator, biar netral, bukan dari pihak bersengketa). Harusnya
+dicek dulu pola otorisasi yang sudah ada sebelum nulis endpoint baru.
+
+Perbaikan: syarat otorisasi diganti dari "isInvolved (submitter/receiver/
+mediator)" jadi "isMediator" saja -- cuma mediator kasus itu yang boleh
+manggil owner.
+
+Testing ulang (LOLOS):
+1. Submitter (Staff Jahit) coba manggil -> 403 ditolak, pesan baru:
+   "Cuma mediator (staff kepercayaan) yang bisa manggil owner..."
+2. Mediator kasus (Admin Demo) coba manggil -> berhasil, pesan +
+   notifikasi ter-insert seperti semula
+
+Prinsip ditambahkan: sebelum bikin endpoint baru yang melibatkan otorisasi
+staff, WAJIB cek dulu pola otorisasi serupa yang sudah ada di checkpoint
+(bagian 71: call_log mediator-only) -- bukan cuma niru pola generik
+"pihak terlibat boleh akses".

@@ -971,9 +971,9 @@ app.post("/v1/discrepancy-cases/:id/summon-owner", tenantResolver, requireApiKey
         throw { statusCode: 409, message: "Kasus ini udah kelar (RESOLVED), gak perlu panggil owner lagi." };
       }
 
-      const isInvolved = [caseRow.submitter_staff_id, caseRow.receiver_staff_id, caseRow.mediator_staff_id].includes(staffId);
-      if (!isInvolved) {
-        throw { statusCode: 403, message: "Cuma pihak yang terlibat di kasus ini yang bisa manggil owner." };
+      const isMediator = caseRow.mediator_staff_id === staffId;
+      if (!isMediator) {
+        throw { statusCode: 403, message: "Cuma mediator (staff kepercayaan) yang bisa manggil owner, biar tetap netral -- bukan dari pihak yang lagi bersengketa." };
       }
 
       const msgResult = await c.query(
