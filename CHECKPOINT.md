@@ -1200,3 +1200,26 @@ Prinsip ditambahkan: sebelum bikin endpoint baru yang melibatkan otorisasi
 staff, WAJIB cek dulu pola otorisasi serupa yang sudah ada di checkpoint
 (bagian 71: call_log mediator-only) -- bukan cuma niru pola generik
 "pihak terlibat boleh akses".
+
+===================================================================
+BAGIAN 86 — EKSEKUSI: Kolom related_staff_id + join staff di GET notifications (13 Agustus 2026, SELESAI & TERUJI)
+===================================================================
+Migration add_related_staff_to_notifications: kolom related_staff_id
+(nullable, FK ke staff) -- nyimpen siapa yang jadi "tujuan hubungin balik"
+lewat link WA (untuk trigger discrepancy_summoned_owner: mediator yang
+manggil). summon-owner insert notifikasi sekarang isi related_staff_id =
+staffId (mediator). GET /v1/notifications join ke staff, return
+related_staff_name + related_staff_phone (nomor mentah, BUKAN link jadi --
+frontend yang rakit https://wa.me/<nomor> sendiri, sesuai keputusan
+sebelumnya biar gampang ubah format link tanpa migrasi data lama).
+
+Testing: summon-owner oleh mediator -> notifikasi baru muncul dengan
+related_staff_name & related_staff_phone terisi benar. Notifikasi lama
+(sebelum kolom ada) tetap null, seperti seharusnya.
+
+Next steps:
+1. Extend trigger_type + RLS insert notifications buat jenis lain (stok
+   kosong bagian 72, darurat staff bagian 73)
+2. Selidiki DeprecationWarning client.query() di worker/realtime relay
+3. Tabel tenant_trusted_staff (Bagian 72)
+4. Logic resign & reassignment mediator (Bagian 74)

@@ -993,14 +993,15 @@ app.post("/v1/discrepancy-cases/:id/summon-owner", tenantResolver, requireApiKey
       for (const owner of ownersResult.rows) {
         await c.query(
           `INSERT INTO notifications
-             (tenant_id, recipient_staff_id, trigger_type, source_table, source_id, title, body)
-           VALUES ($1, $2, 'discrepancy_summoned_owner', 'discrepancy_cases', $3, $4, $5)`,
+             (tenant_id, recipient_staff_id, trigger_type, source_table, source_id, title, body, related_staff_id)
+           VALUES ($1, $2, 'discrepancy_summoned_owner', 'discrepancy_cases', $3, $4, $5, $6)`,
           [
             req.tenantId,
             owner.id,
             caseId,
             "Ada yang butuh bantuan kamu",
-            `${caseRow.caller_name} manggil kamu buat bantu selesaikan kasus diskusi yang lagi jalan. Yuk dicek sebelum kelamaan nyangkut.`
+            `${caseRow.caller_name} manggil kamu buat bantu selesaikan kasus diskusi yang lagi jalan. Yuk dicek sebelum kelamaan nyangkut.`,
+            staffId
           ]
         );
       }
@@ -1035,10 +1036,15 @@ app.get("/v1/notifications", tenantResolver, requireApiKey, requireStaffSession,
   try {
     const result = await withTenantAndStaff(client, req.tenantId, staffId, (c) =>
       c.query(
-        `SELECT id, trigger_type, source_table, source_id, title, body, read_at, created_at
-         FROM notifications
-         ORDER BY created_at DESC
-         LIMIT 50`
+        `SELECT n.id, n.trigger_type, n.source_table, n.source_id, n.title, n.body,
+                n.read_at, n.created_at,
+                s.full_name AS related_staff_name, s.phone_number AS related_staff_phone
+         FROM notifications n
+         LEFT JOIN staff s ON s.id = n.related_staff_id
+         WHERE n.recipient_staff_id = $1
+         ORDER BY n.created_at DESC
+         LIMIT 50`,
+        [staffId]
       )
     );
     const unreadCount = result.rows.filter((n) => !n.read_at).length;
