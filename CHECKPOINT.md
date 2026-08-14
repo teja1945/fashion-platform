@@ -1266,3 +1266,105 @@ Next steps:
 3. Extend trigger_type + RLS insert notifications buat jenis lain
 4. Selidiki DeprecationWarning client.query() di worker/realtime relay
 5. Tabel tenant_trusted_staff (Bagian 72)
+
+===================================================================
+BAGIAN 88 — RISET: PETA BESAR STRUKTUR PABRIK GARMEN (14 Agustus 2026, ide/rencana, belum diimplementasi)
+===================================================================
+Latar belakang: Teja mau proyek ini gak cuma cocok buat konveksi kecil,
+tapi juga bisa ditawarkan ke pabrik skala penuh -- meski Teja sendiri
+belum pernah kerja di pabrik (pengalaman cuma konveksi/tailor jadi vendor
+buat divisi pabrik). Sesi ini riset struktur pabrik garmen dari sumber
+industri Indonesia, dipetakan ke arsitektur sistem yang udah ada.
+
+FILOSOFI BARU DITAMBAHKAN -- "RASA GROSIR": platform ini sedia ruang dan
+kebutuhan SEBANYAK MUNGKIN di depan (grosir/wholesale), semaksimal
+mungkin sebelum dibutuhkan -- bukan tambal satu-satu pas kepepet. Tenant
+tinggal pilih/aktifkan fitur yang relevan buat bisnisnya, sisanya sudah
+tersedia kalau nanti dibutuhkan. Prinsip ini sudah terbukti dipakai di
+bagian 87 (cadangan mediator harus disiapkan di depan, bukan "naik
+jabatan" mendadak pas resign) -- sekarang dijadikan filosofi resmi ke-7,
+berlaku ke semua modul di bawah ini dan ke desain fitur berikutnya.
+
+ALUR PRODUKSI LENGKAP (versi paling detail):
+Sales/Merchandising -> Costing -> Desain -> CAD/Pattern (bikin pola +
+marker efisiensi potong) -> Sampel -> ACC Buyer -> Purchasing ->
+Cutting -> Jahit (sub-stage custom per tenant: obras/saku/kerah/lubang
+kancing/pasang kancing) -> QC -> Finishing (sub-stage custom: buang
+benang/packing) -> QC akhir -> Gudang barang jadi -> Pengiriman ->
+Retur/Komplain (kalau ada)
+
+PEMBAGIAN MODUL (untuk arsitektur ke depan):
+
+MODUL A -- Alur Produksi Utama (linear, jantung sistem, prioritas utama)
+Semua tahap di atas. Implikasi teknis TERBESAR: stage jahit & finishing
+sekarang FLAT (1 nama per tahap), tapi kenyataan pabrik butuh 2 LEVEL --
+stage utama yang bisa dipecah jadi sub-stage custom per tenant. Perluasan
+dari pola modular bagian 61 & 66, nambah 1 tingkat kedalaman.
+
+MODUL B -- PPIC: visibility LINTAS semua production_jobs sekaligus (bukan
+per-stage kayak staff biasa), pantau gap_status/deadline. Terpisah dari
+Modul A tapi baca datanya.
+
+MODUL C -- Industrial Engineering (IE): waktu standar & target per style,
+kapasitas line. Opsional, biasanya cuma pabrik besar. Referensi doang,
+gak ikut proses harian.
+
+MODUL D -- Finance: invoice buyer, bayar supplier, payroll, DAN refund
+buat retur/komplain. Terpisah total, nyambung ke Modul A cuma di titik
+trigger (job selesai kirim, purchasing beli bahan, retur masuk).
+
+MODUL E -- HRD: rekrutmen, pelatihan, performa, absensi. Terpisah total,
+GAK nyentuh Modul A sama sekali.
+
+MODUL F -- Maintenance/Teknisi: cuma 1 fitur "lapor mesin rusak" ->
+notifikasi ke teknisi. Bisa pakai pola tabel notifications yang SUDAH ADA
+(bagian 83-86) -- tinggal extend trigger_type baru, bukan bangun dari nol.
+
+MODUL G -- Compliance/Audit (BUKAN modul aktif, tapi FITUR laporan):
+Pabrik ekspor wajib transparan & bebas manipulasi data buat lolos audit
+dagang internasional (USTR dkk). PENTING: audit trail yang sudah dibangun
+dari awal proyek ini (Rasa Keamanan -- event-sourcing, mediator_reassignment_log,
+production_events, dst) adalah NILAI JUAL untuk pabrik ekspor, bukan cuma
+kebutuhan internal. Gak butuh tabel baru, cukup laporan/export dari data
+yang sudah ada.
+
+MODUL H -- Subkontraktor: field tambahan di sub-stage (assigned_to_type:
+internal/vendor-eksternal) -- pabrik sering lempar sebagian kerjaan ke
+vendor luar (relevan karena Teja sendiri pernah jadi vendor konveksi
+untuk pabrik).
+
+MODUL I -- Database Buyer/Customer: saat ini baru orders.customer_contact
+(field per order). Untuk buyer berulang (terutama ekspor), pertimbangkan
+tabel customers/buyers terpisah (riwayat order, kontak, dst) -- BELUM
+diputuskan, dicatat untuk didiskusikan nanti.
+
+MODUL J -- Retur/Komplain: alur sekarang berhenti di "Pengiriman", belum
+ada tempat buat retur/komplain buyer setelah barang terkirim. Kemungkinan
+masuk Modul D (Finance, untuk refund) atau modul kecil sendiri -- BELUM
+diputuskan.
+
+TIDAK PERLU masuk sistem: Marketing (strategi/konsep, di luar siklus
+operasional produksi), GA/Safety/Environment (administratif fisik,
+di luar sistem).
+
+HIERARKI LAPANGAN (perluasan role staff yang sudah ada):
+Operator -> Leader (pimpin beberapa operator 1 line) -> Foreman (koordinasi
+beberapa line) -> Supervisor (operasional harian, target, kualitas).
+Leader/Supervisor kandidat alami buat isi peran mediator/backup yang
+sudah dibangun (bagian 74-87).
+
+STATUS: Ini PETA/RISET, belum ada satupun tabel/kode dari bagian ini yang
+diimplementasi. Prioritas eksekusi berikutnya tetap ngikutin next steps
+yang sudah tercatat (bagian 74 resign/reassignment, notifikasi jenis lain,
+tenant_trusted_staff) -- bagian 88 ini jadi PETA ACUAN JANGKA PANJANG,
+bukan next step langsung.
+
+Next steps (prioritas jangka pendek, TIDAK berubah):
+1. POST /v1/mediators/:id/backups (auto-provision tenant_mediators buat
+   backup_staff_id yang belum terdaftar, konsisten Rasa Grosir)
+2. POST /v1/mediators/:id/resign (logic resign & reassignment lengkap
+   sesuai skema bagian 74)
+3. Extend trigger_type + RLS insert notifications buat jenis lain (stok
+   kosong bagian 72, darurat staff bagian 73, mesin rusak Modul F)
+4. Selidiki DeprecationWarning client.query() di worker/realtime relay
+5. Tabel tenant_trusted_staff (Bagian 72)
