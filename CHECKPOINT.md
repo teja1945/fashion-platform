@@ -260,3 +260,18 @@ pertanyaan itu kayak ngejelasin ke orang yang baru pertama denger konsepnya,
 bukan ke sesama developer. Ini berlaku di SEMUA room/sesi Claude ke depan,
 bukan cuma sesi ini -- ditemukan dari pola berulang kali Teja perlu minta
 "sederhanain" sebelum bisa jawab.
+
+===================================================================
+89. Ide Awal — Tools bantu UI/UX: Stitch, Figma, v0 (14 Agustus 2026, keputusan awal, belum full dieksekusi)
+===================================================================
+Konteks: scanner.html & frontend lain masih manual/belum ada tampilan hidup. Riset tools AI UI/UX 2026, keputusan alur kerja:
+
+- Google Stitch (stitch.withgoogle.com, gratis) — eksplor visual cepat, banyak variasi dari 1 prompt teks. Kuat di fase ideasi awal, tidak sekuat Figma buat konsistensi antar modul. Tidak ada API publik — akses manual only.
+- Figma — connector MCP AKTIF di akun Claude utama (suarakyat1945@gmail.com), connect via mode Samaran/Incognito browser karena akun Google lain auto-login. Dipakai buat rapihin desain dari Stitch biar konsisten antar modul (dashboard, scanner, thread). Karena connector aktif, Claude bisa baca file Figma langsung tanpa copas manual.
+- v0 by Vercel (v0.dev, login via GitHub teja1945) — generate kode React siap pakai dari deskripsi teks. Free tier: $5 kredit/bulan (gratis, tanpa kartu kredit), cukup buat eksplor manual lewat browser. v0 Platform API (buat kontrol otomatis dari VPS/script) baru terbuka di plan Premium ($20/bulan) — DITUNDA, generate tetap manual dulu via browser sampai kepake rutin.
+
+Alur kerja disepakati: Stitch (eksplor visual) -> Figma (rapihin, konsisten antar modul) -> v0 (generate kode React final) -> kode ditaruh di repo fashion-platform -> push GitHub -> auto-deploy Vercel. VPS TETAP fokus backend/API saja, tidak dipakai buat otomasi generate UI (ditunda sampai v0 API di-upgrade).
+
+Catatan multi-akun: Figma connector harus di-connect terpisah di tiap akun Claude yang dipakai (4 akun Claude Teja) — connector nempel ke akun Claude, tidak ke-share otomatis walau semua room "nyambung" lewat checkpoint yang sama. Stitch & v0 tidak perlu setup apapun di sisi Claude — akses murni manual browser, kode hasilnya baru masuk alur Claude lewat commit ke GitHub.
+
+Status: keputusan arah sudah disepakati, belum dieksekusi coding apapun. Next: coba generate scanner.html pertama kali via Stitch.
