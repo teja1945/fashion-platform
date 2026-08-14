@@ -249,3 +249,14 @@ KOLABORASI & CACHE — WAJIB DIBACA TIAP SESI BARU
 - Cara edit/append file di VPS: `cat >> nama_file << 'EOF' ... EOF` untuk NAMBAH (bukan nano). `>>` = append, `>` = overwrite total. Verifikasi dengan `tail -N nama_file` setelah append, sebelum commit & push.
 - Cross-check ke ChatGPT: rekomendasikan proaktif kalau ada keputusan desain berisiko tinggi (arsitektur data, security, race condition, konsistensi) — jangan nunggu Teja minta duluan. Evaluasi jujur hasilnya.
 - Workflow Teja: satu-langkah-satu-waktu. Claude kasih 1 command/langkah, tunggu hasil dari Teja, baru lanjut ke langkah berikutnya. Jangan kasih banyak command sekaligus.
+
+===================================================================
+ATURAN WAJIB (14 Agustus 2026): jelasin pakai bahasa sederhana dari awal
+===================================================================
+Tiap kali ada keputusan desain yang perlu persetujuan Teja (pilihan A vs B,
+dst), jelasin PAKAI CONTOH KONKRET/SKENARIO NYATA duluan -- bukan istilah
+teknis dulu baru disederhanain belakangan pas ditanya. Anggap tiap
+pertanyaan itu kayak ngejelasin ke orang yang baru pertama denger konsepnya,
+bukan ke sesama developer. Ini berlaku di SEMUA room/sesi Claude ke depan,
+bukan cuma sesi ini -- ditemukan dari pola berulang kali Teja perlu minta
+"sederhanain" sebelum bisa jawab.
