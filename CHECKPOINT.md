@@ -282,3 +282,32 @@ Status: keputusan arah sudah disepakati, belum dieksekusi coding apapun. Next: c
 Status: Langkah 1 kelar (cek struktur tabel discrepancy_cases via Supabase MCP) — semua kolom yang dibutuhin (resolution_notes, submitter_confirmed_at, receiver_confirmed_at, resolved_by_staff_id, resolved_at, resolved_with_mandate, status ARRAY termasuk RESOLVED & ESCALATED_TO_OWNER) SUDAH ADA, tidak perlu migration baru.
 Ada 2 discrepancy_cases nyangkut di DB sekarang, bisa dipakai untuk testing endpoint ini nanti.
 Next: Langkah 2 — bangun endpoint mediator tulis resolution_notes, endpoint submitter/receiver confirm, endpoint force-resolve (severity NORMAL), endpoint eskalasi ke owner (severity SERIOUS). Ingat: RESOLVED final, tidak ada reopen. Tambahkan row otomatis ke discrepancy_thread_messages saat resolve/eskalasi (jejak permanen) + notifikasi dual-channel (dashboard+WA) ke pihak terkait. Rasa yang relevan: Customer Service, Keamanan, Talent (kredit mediator via resolved_by_staff_id).
+
+## 91. Endpoint resolution mediator (POST /v1/discrepancy-cases/:id/resolution) -- SELESAI & TERUJI
+
+**Rasa yang dipenuhi:** Rasa Keamanan (jejak revisi tidak menimpa, korelasi lewat corrects_message_id) dan Rasa Ketelitian (verifikasi struktur tabel + pola otorisasi dari kode asli sebelum menulis, testing 3 skenario end-to-end sebelum dianggap selesai).
+
+**Keputusan desain yang disepakati:**
+- Mediator boleh merevisi resolution_notes selama kasus belum RESOLVED, tapi revisi = pesan baru di thread (action_subtype: resolution_revised), bukan menimpa pesan lama. Pesan pertama pakai action_subtype: resolution_written. Ditandai lewat corrects_message_id yang menunjuk ke pesan sebelumnya.
+- Setiap kali resolution direvisi, submitter_confirmed_at dan receiver_confirmed_at di-reset ke NULL -- kedua pihak wajib konfirmasi ulang dari nol, karena persetujuan sebelumnya berbasis isi yang sudah tidak berlaku.
+- Kalau submitter/receiver menolak konfirmasi (baik di percobaan pertama atau setelah revisi), tidak ada logic khusus tambahan -- ditangani oleh endpoint force-resolve (severity NORMAL) atau eskalasi ke owner (severity SERIOUS) yang direncanakan sebagai Langkah 3 & 4.
+- Endpoint mengikuti pola otorisasi persis dari call_log/summon-owner: cek kasus ada & staff terlibat -> tolak kalau RESOLVED -> ambil mediator staff_id di dalam transaksi yang sama -> cek isMediator -> baru proses.
+
+**Migration database yang dijalankan (2x, via Supabase MCP apply_migration):**
+1. add_resolution_action_subtypes -- menambah 'resolution_written' dan 'resolution_revised' ke CHECK constraint kolom action_subtype di discrepancy_thread_messages.
+2. add_resolution_notification_trigger_type -- menambah 'discrepancy_resolution_written' ke CHECK constraint kolom trigger_type di notifications. (Ditemukan lewat trial-and-error saat testing pertama gagal dengan error 23514 notifications_trigger_type_check.)
+
+**Kode:** disisipkan via python3 heredoc (bukan nano, sesuai SOP) di server.js, persis setelah endpoint summon-owner (baris ~1059) dan sebelum GET /v1/notifications. Endpoint final ada di baris 1064-1177.
+
+**Testing (pakai kasus demo d2d01352-339c-479a-a409-0fe7d10af16d, mediator Admin Demo):**
+1. Resolution pertama kali -> 201, action_subtype resolution_written, corrects_message_id null, isRevision false. LULUS.
+2. Revisi kedua -> 201, action_subtype resolution_revised, corrects_message_id menunjuk ke pesan pertama, isRevision true. LULUS.
+3. Verifikasi DB: resolution_notes di discrepancy_cases terupdate ke versi terbaru, status IN_DISCUSSION, submitter_confirmed_at & receiver_confirmed_at NULL. LULUS.
+4. Staff yang tidak terlibat sama sekali (Staff Packing Demo) mencoba menulis resolution -> ditolak di level RLS sebelum sampai ke app-level check (pesan sama seperti error 404/403 gabungan yang sudah ada di endpoint lain, sengaja tidak membocorkan keberadaan kasus). LULUS.
+
+**Catatan teknis penting buat sesi berikutnya:**
+- staff_id di database itu UUID lengkap, bukan 8 karakter pertama yang dicatat di bagian "Purpose & context" (35afaab6-8095-4763-9029-ba22aaa23607, bukan cuma 35afaab6). Command curl/testing wajib pakai UUID lengkap.
+- Testing endpoint via curl butuh header Host manual buat spoof subdomain (tenantResolver baca dari subdomain, bukan header khusus) -- contoh: -H "Host: demo.fashion-platform.local" karena subdomain tenant demo adalah "demo".
+- Pola "cek dulu CHECK constraint sebelum insert nilai baru ke kolom bertipe enum-teks" harus jadi kebiasaan wajib sebelum nulis endpoint baru manapun -- sudah 2x kena kasus ini di sesi yang sama (action_subtype, trigger_type).
+
+**Next step -- Langkah 3:** Endpoint confirm dari submitter & receiver (submitter/receiver menyetujui resolution_notes yang ditulis mediator). Setelah itu Langkah 4: force-resolve (severity NORMAL) dan eskalasi ke owner (severity SERIOUS) untuk kasus di mana salah satu pihak tidak mau konfirmasi.
