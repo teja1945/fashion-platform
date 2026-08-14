@@ -221,6 +221,38 @@ app.post("/v1/staff/revoke", tenantResolver, requireApiKey, requireStaffSession,
   res.json({ ok: true, revoked_sessions: revokedCount });
 });
 
+app.post("/v1/mediators", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
+  if (!isPrivileged(req.staffSession.role)) {
+    return res.status(403).json({ error: "hanya owner yang bisa menunjuk mediator" });
+  }
+  const { staff_id, line_scope, has_full_mandate } = req.body || {};
+  if (!staff_id) {
+    return res.status(400).json({ error: "staff_id wajib diisi" });
+  }
+
+  const client = await pool.connect();
+  try {
+    const result = await withTenant(client, req.tenantId, (c) =>
+      c.query(
+        `INSERT INTO tenant_mediators
+           (tenant_id, staff_id, line_scope, has_full_mandate, is_active, assigned_by)
+         VALUES ($1, $2, $3, $4, true, $5)
+         ON CONFLICT (tenant_id, staff_id)
+         DO UPDATE SET is_active = true, line_scope = $3, has_full_mandate = $4,
+                        assigned_by = $5, updated_at = now()
+         RETURNING *`,
+        [req.tenantId, staff_id, line_scope || null, !!has_full_mandate, req.staffSession.staffId]
+      )
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error("mediator assign error:", err);
+    res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
+  }
+});
+
 app.post("/v1/staff/offboard", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
   if (!isPrivileged(req.staffSession.role)) {
     return res.status(403).json({ error: "hanya admin yang bisa offboard staff" });

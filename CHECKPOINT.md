@@ -1223,3 +1223,46 @@ Next steps:
 2. Selidiki DeprecationWarning client.query() di worker/realtime relay
 3. Tabel tenant_trusted_staff (Bagian 72)
 4. Logic resign & reassignment mediator (Bagian 74)
+
+===================================================================
+BAGIAN 87 — EKSEKUSI: POST /v1/mediators + fondasi bagian 74 (13-14 Agustus 2026, SELESAI & TERUJI)
+===================================================================
+Mulai implementasi logic resign & reassignment mediator (skema desain di
+bagian 74). Ditemukan 2 gap sebelum bisa lanjut ke resign:
+
+1. Belum ada UNIQUE(tenant_id, staff_id) di tenant_mediators -- staff bisa
+   didaftarkan dobel jadi mediator tanpa dicegah. FIXED via migration
+   add_unique_tenant_mediators_staff.
+2. Cadangan (mediator_backups.backup_staff_id) TIDAK otomatis punya baris
+   tenant_mediators -- dicontohkan Staff QC Demo yang jadi cadangan Admin
+   Demo tapi belum resmi jadi mediator. Diputuskan (prinsip Teja): ruang
+   mediator harus DISEDIAKAN DI DEPAN saat staff ditunjuk jadi cadangan,
+   disetujui owner di titik itu -- BUKAN otomatis "naik jabatan" mendadak
+   pas resign terjadi. Konsisten filosofi platform: sediakan ruang/tempat
+   dulu semaksimal mungkin, baru diisi belakangan.
+
+Urutan implementasi ditetapkan:
+1. POST /v1/mediators -- SELESAI sesi ini
+2. POST /v1/mediators/:id/backups -- next, harus auto-provision
+   tenant_mediators buat backup_staff_id kalau belum ada
+3. POST /v1/mediators/:id/resign -- baru bisa aman diimplementasi setelah
+   1 & 2 selesai, karena resign TIDAK BOLEH lagi mikirin "backup belum
+   terdaftar" -- itu sudah diselesaikan di tahap provisioning (langkah 2)
+
+POST /v1/mediators (owner-only, isPrivileged): tunjuk staff jadi mediator
+resmi. ON CONFLICT (tenant_id, staff_id) DO UPDATE -- staff yang sama
+ditunjuk ulang otomatis is_active=true lagi, bukan bikin baris dobel.
+
+Testing (LOLOS):
+1. Owner (Admin Demo) tunjuk Staff Packing Demo -> mediator baru terbuat,
+   assigned_by tercatat benar
+2. Staff biasa (Staff Jahit) coba tunjuk -> 403 ditolak
+
+Next steps:
+1. POST /v1/mediators/:id/backups (auto-provision tenant_mediators untuk
+   backup_staff_id yang belum terdaftar)
+2. POST /v1/mediators/:id/resign (logic resign & reassignment lengkap
+   sesuai skema bagian 74 -- baru aman sekarang setelah gap di atas jelas)
+3. Extend trigger_type + RLS insert notifications buat jenis lain
+4. Selidiki DeprecationWarning client.query() di worker/realtime relay
+5. Tabel tenant_trusted_staff (Bagian 72)
