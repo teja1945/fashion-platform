@@ -275,3 +275,10 @@ Alur kerja disepakati: Stitch (eksplor visual) -> Figma (rapihin, konsisten anta
 Catatan multi-akun: Figma connector harus di-connect terpisah di tiap akun Claude yang dipakai (4 akun Claude Teja) — connector nempel ke akun Claude, tidak ke-share otomatis walau semua room "nyambung" lewat checkpoint yang sama. Stitch & v0 tidak perlu setup apapun di sisi Claude — akses murni manual browser, kode hasilnya baru masuk alur Claude lewat commit ke GitHub.
 
 Status: keputusan arah sudah disepakati, belum dieksekusi coding apapun. Next: coba generate scanner.html pertama kali via Stitch.
+
+===================================================================
+90. Progress — Endpoint resolve/close discrepancy case (14 Agustus 2026, BELUM SELESAI)
+===================================================================
+Status: Langkah 1 kelar (cek struktur tabel discrepancy_cases via Supabase MCP) — semua kolom yang dibutuhin (resolution_notes, submitter_confirmed_at, receiver_confirmed_at, resolved_by_staff_id, resolved_at, resolved_with_mandate, status ARRAY termasuk RESOLVED & ESCALATED_TO_OWNER) SUDAH ADA, tidak perlu migration baru.
+Ada 2 discrepancy_cases nyangkut di DB sekarang, bisa dipakai untuk testing endpoint ini nanti.
+Next: Langkah 2 — bangun endpoint mediator tulis resolution_notes, endpoint submitter/receiver confirm, endpoint force-resolve (severity NORMAL), endpoint eskalasi ke owner (severity SERIOUS). Ingat: RESOLVED final, tidak ada reopen. Tambahkan row otomatis ke discrepancy_thread_messages saat resolve/eskalasi (jejak permanen) + notifikasi dual-channel (dashboard+WA) ke pihak terkait. Rasa yang relevan: Customer Service, Keamanan, Talent (kredit mediator via resolved_by_staff_id).
