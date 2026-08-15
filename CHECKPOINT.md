@@ -276,6 +276,8 @@ Catatan multi-akun: Figma connector harus di-connect terpisah di tiap akun Claud
 
 Status: keputusan arah sudah disepakati, belum dieksekusi coding apapun. Next: coba generate scanner.html pertama kali via Stitch.
 
+>>> LIHAT JUGA Bagian 101 (koreksi strategi) sebelum eksekusi alur ini -- WAJIB kumpulin data asli dulu sebelum menyusun prompt ke tools manapun di alur ini. <<<
+
 ===================================================================
 90. Progress — Endpoint resolve/close discrepancy case (14 Agustus 2026, BELUM SELESAI)
 ===================================================================
@@ -543,3 +545,25 @@ Urutan pasti #2-4 masih fleksibel, perlu dikonfirmasi ulang Teja di sesi mendata
 - Implikasi desain: login TIDAK BISA murni device-bound (asumsi "1 device = 1 identitas tetap"), karena ada skenario device dipakai gantian orang. Tetap butuh cara pilih "siapa yang login", tapi bisa dibuat pintar: kalau device itu sudah "dikenal" (biasa dipakai staff tertentu), langsung tawarkan PIN untuk staff itu duluan tanpa perlu cari nama dulu. Kalau device asing/baru (HP pabrik atau numpang), baru muncul pilihan cari/pilih nama staff.
 
 **Status: KEPUTUSAN DESAIN DISEPAKATI. Belum ada implementasi kode/UI apapun -- next step langsung: lanjut ke Stitch untuk eksplorasi visual layar login yang sudah menyesuaikan keputusan ini (2 mode: device dikenal vs device asing).**
+
+## 101. Koreksi strategi: alur wajib sebelum ke Stitch/tools UI apapun (15 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Ketelitian (kesalahan pola kerja diakui terbuka begitu ketauan, bukan ditutupi atau dibiarkan terulang) dan Rasa Kepemimpinan (1 alur kerja konsisten dipegang ke semua room/sesi ke depan, bukan tiap sesi improvisasi caranya sendiri-sendiri).
+
+**Konteks kesalahan yang terjadi:** saat mulai desain frontend layar login staff, Claude langsung menyusun prompt untuk Stitch (Bagian 89) berdasarkan bayangan/asumsi UI generik -- BUKAN dari data/logic yang benar-benar ada di database dan kode. Akibatnya Stitch generate hasil yang lompat sendiri ke konsep yang TIDAK ADA dasarnya di schema: "sesi kerja", "target harian per produk (145/200 potong)", "mesin/area fisik (Mesin Cutter 02)" -- istilah karangan yang terdengar masuk akal tapi tidak match sama kolom/konsep yang sudah disepakati sebelumnya (dikonfirmasi setelah dicek balik ke tabel production_jobs, staff, stage_quantity_submissions via Supabase MCP -- tidak ada satupun kolom untuk itu).
+
+**Bagian ini MELENGKAPI dan MENGOREKSI alur Bagian 89 (Stitch -> Figma -> v0)** -- bukan aturan terpisah. Bagian 89 mencatat alur TOOLS-nya, Bagian 101 ini mencatat PROSES WAJIB sebelum tools itu dipakai. Kedua bagian harus dibaca bersamaan, jangan cuma baca salah satu.
+
+**ATURAN WAJIB baru (berlaku semua room/sesi ke depan, permanen, berlaku untuk Stitch MAUPUN Figma MAUPUN v0 -- bukan cuma Stitch):** sebelum menyusun prompt untuk tools desain/generate visual apapun (Stitch, Figma, v0), WAJIB lakukan urutan ini dulu, tidak boleh dilompati:
+1. Kumpulkan dulu data & logic ASLI dari database (struktur tabel terkait via Supabase MCP) dan kode (endpoint yang relevan di server.js) -- bukan dari ingatan/asumsi.
+2. Cek balik ke CHECKPOINT.md dan kedua file archive -- cari ide-ide yang SUDAH TERCATAT sebelumnya yang relevan ke modul/layar yang sedang dikerjakan (contoh: Bagian 7 daftar ide belum diriset, Peta Bagian 88, atau bagian manapun yang pernah menyinggung topik terkait). Ide lama yang relevan WAJIB diikutsertakan ke rangkuman, tidak boleh terlewat hanya karena tidak sedang dibahas aktif di sesi ini.
+3. Rangkum semuanya (data asli + ide lama yang relevan) dalam bahasa sederhana, pakai istilah yang PERSIS sama dengan nama kolom/konsep yang sudah ada di sistem -- bukan istilah karangan yang "terdengar masuk akal".
+4. Diskusikan rangkuman ini dengan Teja dulu -- putuskan bareng apa yang mau ditampilkan, urutan prioritas, istilah yang dipakai di UI (sejalan Rasa Copywriting), DAN cek balik rangkuman itu ke 9 Rasa (Bagian 64) -- minimal 1-2 rasa yang relevan harus kelihatan wujud nyatanya di tampilan yang direncanakan, bukan cuma logic/data mentah dipindah ke layar.
+5. SETELAH disepakati Teja (termasuk rasa mana yang diterapkan), baru susun prompt Stitch yang isinya sudah spesifik berdasarkan rangkuman yang disepakati -- prompt ke Stitch juga WAJIB menyebutkan rasa yang ingin ditonjolkan di tampilan itu, bukan cuma spek fungsional/visual polos. Prinsip yang sama berlaku persis saat nanti sampai tahap Figma (merapikan) dan v0 (generate kode React) -- TIDAK BOLEH generate/rapikan apapun di tahap manapun tanpa hasil sebelumnya sudah dicek balik ke data asli dan disepakati Teja dulu, tiap tahap adalah checkpoint verifikasi baru, bukan sekali cek di awal lalu sisanya jalan otomatis.
+6. Kalau di tengah proses langkah 1-5 Teja menyampaikan ide baru yang relevan (seperti kejadian Bagian 100, ide device HP muncul spontan saat diskusi login) -- ide itu WAJIB diambil dan didiskusikan sampai jadi keputusan jelas SEBELUM lanjut ke Stitch, bukan dicatat sekilas lalu dilanjut tanpa dibahas tuntas. Ide baru maupun ide lama yang ditemukan di langkah 2 sama-sama tidak boleh dilewatkan begitu saja.
+
+**Prinsip turunannya:** kalau Stitch (atau tools lain) menghasilkan sesuatu yang konsepnya tidak match ke rangkuman yang sudah disepakati (seperti kejadian dashboard "Mulai Sesi Baru" yang muncul tidak diminta) -- ini WAJIB ditandai eksplisit sebagai penyimpangan yang perlu didiskusikan, TIDAK BOLEH diam-diam diterima/dipakai hanya karena tampilannya sudah bagus secara visual.
+
+**Nasib hasil Stitch yang sudah terlanjur dibuat sebelum aturan ini disepakati (splash screen, State 1 login/device dikenal, dashboard produksi):** BELUM DIPUTUSKAN dibuang atau dipakai ulang -- perlu didiskusikan terpisah dengan Teja. Catatan: gaya visual (warna terracotta #853423, font Plus Jakarta Sans/Be Vietnam Pro, tone hangat) dari splash & State 1 login dinilai sudah bagus dan berpotensi dipakai ulang sebagai referensi gaya, TAPI konten/isinya (khususnya dashboard produksi: "sesi", target harian, mesin/area) TIDAK BOLEH dipakai mentah karena tidak berdasar data asli -- keputusan final menunggu diskusi dengan Teja.
+
+**Status: PRINSIP DISEPAKATI, permanen untuk semua room/sesi ke depan.** Progress rangkuman data untuk modul produksi (langkah 1-2 dari alur baru ini) sudah dimulai -- lihat kelanjutannya di sesi/checkpoint berikutnya sebelum mulai prompt Stitch modul produksi.
