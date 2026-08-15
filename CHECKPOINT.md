@@ -458,3 +458,30 @@ Poin penting: owner bisa jadi punya BEBERAPA bisnis sekaligus (contoh yang diseb
 3. HTTPS/SSL -- wajib sebelum expose ke publik/domain live, sudah lama di next steps (Bagian 5 lama).
 4. Endpoint mediator backup/resign yang tertunda.
 Urutan pasti #2-4 masih fleksibel, perlu dikonfirmasi ulang Teja di sesi mendatang.
+
+## 98. Investigasi & fix bug checkGaps() worker.js -- SELESAI & TERUJI
+
+**Rasa yang dipenuhi:** Rasa Ketelitian (setiap dugaan dicek ke sumber asli -- data, index, fungsi DB, pooler, PM2 stats -- sebelum disimpulkan; beberapa dugaan awal terbukti salah dan itu sengaja dicatat, bukan disembunyikan).
+
+**Konteks:** dari Checkpoint 92/93/96, worker.js gap-monitor menghasilkan error "Query read timeout" dan "checkGaps() masih berjalan dari tick sebelumnya, skip tick ini." -- belum pernah diinvestigasi.
+
+**Proses investigasi (dugaan yang TERBUKTI SALAH, dicek satu-satu):**
+- Index kurang di production_events/production_jobs -- SALAH, kedua tabel kosong (count 0), index gak relevan ke data kosong.
+- Volume data kebanyakan -- SALAH, production_events dan production_jobs sama-sama 0 baris.
+- Fungsi list_active_tenant_ids() berat -- SALAH, isinya cuma `select id from tenants where is_active = true`, simpel.
+- Pooler Supabase salah tipe (transaction pooler tidak cocok buat advisory lock) -- SALAH, sudah pakai session pooler (port 5432) yang benar.
+- Crash-loop PM2 -- SALAH, unstable restarts: 0, uptime normal 2 menit sesuai waktu restart manual. Kesan "12x startup" di log cuma numpukan riwayat lama di file log, bukan kejadian baru.
+
+**Akar masalah yang TERBUKTI BENAR (2 hal terpisah):**
+1. "Query read timeout" -- gangguan jaringan sesaat VPS ke Supabase (internet publik, bukan privat), bukan bug kode. Sistem sudah didesain menahan ini dengan benar: `isRunning` di-reset di `startGapMonitor`, jadi cuma 1 tick kelewat lalu pulih otomatis di tick berikutnya (10 detik). TIDAK PERLU perbaikan kode lebih lanjut untuk ini -- sudah teruji recover sendiri.
+2. `MaxListenersExceededWarning` di error log -- BENERAN bug aktif, dikonfirmasi masih muncul tiap kurang dari 1 menit sebelum fix. Root cause: `client.on("error", ...)` di checkGaps() dipasang ulang tiap tick ke client yang di-reuse dari pool, listener numpuk tanpa pernah dilepas.
+
+**Perbaikan yang dieksekusi:**
+1. `db.js`: tambah `max: 20` eksplisit di konfigurasi Pool (sebelumnya default pg cuma 10, sementara ada 23 titik pool.connect()/pool.query() di codebase -- angka wajar biar gak rebutan koneksi pas rame).
+2. `worker.js` checkGaps(): listener error di-declare jadi named function `onClientError`, dan dilepas via `client.removeListener("error", onClientError)` di blok finally sebelum `client.release()` -- gak numpuk lagi di client yang di-reuse pool.
+
+**Verifikasi:** error.log dikosongkan manual, dipantau 2 menit penuh setelah restart -- NOL warning/error baru muncul (sebelumnya muncul dalam waktu <1 menit). LULUS.
+
+**Catatan untuk sesi berikutnya:** DeprecationWarning "client.query() already executing" (dicatat lama di archive bagian 84 & next steps bagian 5) KEMUNGKINAN akar penyebabnya sama (client pool di-reuse tanpa dibersihin state-nya) -- belum dicek eksplisit apakah fix listener ini juga menghilangkan warning ini, perlu dipantau di sesi mendatang sebelum dianggap otomatis ikut kelar.
+
+**Status: bug checkGaps() SELESAI diinvestigasi dan diperbaiki. Item next steps lama di Bagian 5 (baris "Selidiki DeprecationWarning") masih perlu direview terpisah, JANGAN dianggap otomatis kelar oleh fix ini.**
