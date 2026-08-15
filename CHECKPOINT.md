@@ -382,3 +382,24 @@ Next: Langkah 2 — bangun endpoint mediator tulis resolution_notes, endpoint su
 - Worker gap monitor (worker.js, fungsi checkGaps) masih menghasilkan error "Query read timeout" dan "checkGaps() masih berjalan dari tick sebelumnya, skip tick ini." di error log. Di luar scope endpoint discrepancy. Perlu dicek terpisah supaya tidak menumpuk jadi utang teknis.
 
 **Next step:** Belum ada next step konkret yang disepakati -- 4 endpoint inti discrepancy sudah selesai. Kemungkinan arah selanjutnya: (a) investigasi bug gap monitor yang tertunda, (b) rancang fitur mandat mediator dari owner, (c) mulai fitur backend lain di luar discrepancy, atau (d) mulai frontend. Perlu dibahas dengan Teja di sesi berikutnya.
+
+## 94. IDE BESAR BERIKUTNYA (belum dirancang, belum dikerjakan): Modul Laporan/Rekapan untuk Owner "di balik layar"
+
+**Konteks bisnis yang disampaikan Teja (dicatat penuh, penting untuk arsitektur ke depan):**
+
+Owner (pemilik pabrik/brand) posisinya "di balik layar" -- dia tidak mengurus operasional harian, itu dipasrahkan ke direktur/manajemen (dipetakan ke role "admin" yang sudah ada di sistem, yang sudah bisa akses endpoint operasional termasuk owner-resolve). Owner sendiri hanya mau tahu hasil rekapan dan situasi terbaru, tanpa perlu ribet buka-buka aplikasi operasional yang dipakai staff/admin sehari-hari.
+
+Poin penting: owner bisa jadi punya BEBERAPA bisnis sekaligus (contoh yang disebutkan: garment DAN minyak), dan pabrik garment ini cuma salah satu dari bisnisnya, yang memang sengaja dipercayakan ke orang lain (direktur/manajemen) untuk dijalankan. Ini menyiratkan owner butuh tampilan/dashboard yang RINGKAS dan TERPISAH dari aplikasi operasional utama -- bukan sekadar "role owner login ke app yang sama dengan tampilan dikit lebih banyak", tapi kemungkinan butuh dirancang sebagai pengalaman/tampilan yang berbeda secara sengaja: ringkas, fokus ke rekapan, tanpa detail operasional yang bikin ribet.
+
+**Jenis-jenis laporan yang disebutkan Teja perlu ada (belum dirancang detailnya satu pun):**
+- Laporan keuangan (belum jelas cakupannya -- pemasukan/pengeluaran/profit, perlu digali lebih lanjut)
+- Laporan produk (belum jelas -- produksi per jenis produk? kualitas? volume?)
+- Laporan kemajuan usaha (progress/growth dari waktu ke waktu)
+- Laporan kegagalan usaha (belum jelas definisi "gagal" di sini -- target meleset? masalah kualitas? perlu diklarifikasi saat mulai dirancang)
+- Laporan peningkatan (belum jelas peningkatan dari sisi apa -- efisiensi? omzet? kualitas?)
+
+**Ini terhubung dengan ide di Checkpoint 93 soal WhatsApp** -- kemungkinan owner cukup terima ringkasan rutin (harian/mingguan) lewat WA tanpa perlu buka aplikasi sama sekali, sejalan dengan prinsip "di balik layar" ini.
+
+**Kenapa belum dikerjakan sekarang:** scope-nya besar dan masing-masing jenis laporan butuh sesi rancang tersendiri (data dari tabel mana, bentuk angkanya seperti apa, siapa yang boleh lihat, dsb) -- beda sifat dari endpoint discrepancy yang barusan selesai (yang sifatnya "aksi/action", laporan ini sifatnya "menyajikan ulang data yang sudah ada dengan cara baru"). Disepakati untuk dibahas satu-satu di sesi terpisah, tidak digabung sekaligus.
+
+**Status modul ini: BARU IDE, BELUM ADA RANCANGAN TEKNIS SAMA SEKALI.** Perlu sesi khusus untuk mulai merancang, kemungkinan dimulai dari salah satu jenis laporan dulu (misal laporan keuangan) baru lanjut ke yang lain.
