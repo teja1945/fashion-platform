@@ -507,3 +507,26 @@ Urutan pasti #2-4 masih fleksibel, perlu dikonfirmasi ulang Teja di sesi mendata
 5. Setelah SSL aktif, cross-check checkpoint bagian 3 & 6 (checklist keamanan) -- update status HTTPS dari "belum ada" jadi "ada", dan investigasi kenapa UFW bisa inactive padahal harusnya sudah pernah diaktifkan (kapan/kenapa mati -- reboot? manual disable? belum tahu).
 
 **Catatan konteks:** sesi ini juga sempat isi waktu untuk riset & beli domain (bukan cuma next-step SSL yang direncanakan) -- pembelian domain baru dianggap prasyarat SSL yang belum ada sebelumnya (domain belum pernah dibeli sebelum sesi ini).
+
+## 99. HTTPS/SSL untuk domain benangrasa.com -- SELESAI & TERUJI (lanjutan, 15 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Ketelitian (tiap langkah diverifikasi sendiri, tidak percaya klaim "Congratulations" dari Certbot begitu saja -- dicek isi file config, HTTPS response, dan redirect satu-satu) dan Rasa Keamanan (HTTPS wajib sebelum staff login lewat internet publik, sekarang terpenuhi).
+
+**Langkah yang dieksekusi setelah progress sebelumnya:**
+1. certbot & python3-certbot-nginx terinstall (versi 1.21.0).
+2. File config /etc/nginx/sites-available/api.benangrasa.com dibuat manual (proxy_pass ke localhost:3000, header standar reverse proxy) -- sempat kepakai nano tidak sengaja (isi variable jadi backslash-variable literal), diperbaiki ulang pakai cat heredoc sebelum dipakai.
+3. Site di-enable via symlink ke sites-enabled, nginx -t sukses, reload sukses.
+4. Verifikasi proxy jalan (curl ke localhost dengan Host header spoof) DAN dari luar (browser HP ke http://api.benangrasa.com) -- keduanya sukses sebelum lanjut ke SSL.
+5. sudo certbot --nginx -d api.benangrasa.com dijalankan -- sertifikat berhasil terbit, expire 2026-11-13, auto-renewal terjadwal otomatis oleh Certbot.
+6. Certbot otomatis modifikasi config: tambah listen 443 ssl + path sertifikat/key/dhparam ke server block yang sudah ada, DAN bikin server block baru terpisah di port 80 yang redirect 301 ke HTTPS.
+
+**Verifikasi akhir (semua LULUS):**
+- curl https://api.benangrasa.com -- response bersih, tidak ada error sertifikat.
+- Isi /etc/nginx/sites-enabled/api.benangrasa.com dicek manual -- proxy_pass ke port 3000 utuh, config SSL Certbot sesuai standar.
+- curl -I http://api.benangrasa.com -- HTTP/1.1 301 Moved Permanently, Location: https://api.benangrasa.com/, konfirmasi redirect HTTP ke HTTPS otomatis aktif.
+
+**Catatan tersisa dari progress sebelumnya (belum diinvestigasi, bawa ke sesi berikutnya):** root cause pesan "ERROR: problem running" yang muncul 3x saat ufw allow (hasil akhir firewall sudah dikonfirmasi benar, tapi kenapa pesan error itu muncul belum ditelusuri) DAN kenapa UFW bisa berstatus inactive padahal checkpoint lama bilang seharusnya aktif (kapan/kenapa mati -- belum diketahui).
+
+**STATUS: HTTPS/SSL api.benangrasa.com SELESAI & TERUJI.** Item ini resmi keluar dari next steps aktif (Bagian 5) dan target v1 (Bagian 97, poin 3).
+
+**Next step tersisa dari Bagian 97 (urutan v1):** frontend web responsive (belum tersentuh sama sekali) dan endpoint mediator backup/resign yang tertunda.
