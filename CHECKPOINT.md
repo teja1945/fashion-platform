@@ -485,3 +485,25 @@ Urutan pasti #2-4 masih fleksibel, perlu dikonfirmasi ulang Teja di sesi mendata
 **Catatan untuk sesi berikutnya:** DeprecationWarning "client.query() already executing" (dicatat lama di archive bagian 84 & next steps bagian 5) KEMUNGKINAN akar penyebabnya sama (client pool di-reuse tanpa dibersihin state-nya) -- belum dicek eksplisit apakah fix listener ini juga menghilangkan warning ini, perlu dipantau di sesi mendatang sebelum dianggap otomatis ikut kelar.
 
 **Status: bug checkGaps() SELESAI diinvestigasi dan diperbaiki. Item next steps lama di Bagian 5 (baris "Selidiki DeprecationWarning") masih perlu direview terpisah, JANGAN dianggap otomatis kelar oleh fix ini.**
+
+## 99. Progress -- Setup HTTPS/SSL untuk domain benangrasa.com (15 Agustus 2026, BELUM SELESAI)
+
+**Rasa yang dipenuhi sejauh ini:** Rasa Ketelitian (ditemukan UFW ternyata inactive padahal checkpoint lama bilang seharusnya aktif -- dicek dan dibenerin sebelum lanjut, bukan diabaikan karena "bukan tujuan sesi ini").
+
+**Nama produk resmi ditentukan: Benangrasa.** Domain benangrasa.com dibeli via Biznet Gio NEO Domain (promo HUTRICOM81, invoice #680035, Rp89.910, status Paid), aktif 15 Agustus 2026 - 15 Agustus 2027. Nama "Benang Raja" DIHINDARI sengaja karena ternyata brand batik/fashion besar yang sudah eksis (11 cabang, 556rb+ follower IG, Superbrands 2024) -- risiko konflik merek. "Benangrasa" dicek dulu, tidak ada bisnis yang memakainya.
+
+**Subdomain backend disepakati: api.benangrasa.com**
+
+**Progress teknis:**
+1. DNS record A ditambahkan via Biznet Gio NEO DNS: api.benangrasa.com -> 103.58.101.155 (IP VPS). Propagasi SUDAH SUKSES dicek via dnschecker.org (multiple lokasi, semua match).
+2. nginx diinstall & aktif (sebelumnya backend cuma jalan langsung di port 3000 tanpa reverse proxy).
+3. TEMUAN PENTING: UFW ternyata berstatus INACTIVE saat dicek (kontradiksi dengan catatan lama checkpoint bagian 3 yang bilang "UFW default-deny aktif"). Sudah diperbaiki: `sudo ufw allow 22/tcp`, `80/tcp`, `443/tcp`, lalu `ufw enable`. Sempat muncul "ERROR: problem running" 3x saat allow, tapi diverifikasi via `ufw status verbose` -- semua rule ternyata BENERAN ke-apply (22, 80, 443 semua ALLOW IN, default masih deny incoming). Root cause pesan error itu belum diinvestigasi (kemungkinan cosmetic/duplicate rule), TAPI hasil akhir firewall sudah dikonfirmasi benar.
+
+**BELUM DIKERJAKAN (next step langsung lanjut dari sini):**
+1. Install Certbot: `sudo apt install -y certbot python3-certbot-nginx` -- PERINTAH INI BELUM DIJALANKAN, run ini duluan sebelum lanjut apapun.
+2. Konfigurasi nginx sebagai reverse proxy: server_name api.benangrasa.com, proxy_pass ke http://localhost:3000 (port Node.js yang sudah jalan sekarang, TIDAK PERLU diubah).
+3. Jalankan `sudo certbot --nginx -d api.benangrasa.com` untuk generate & pasang sertifikat SSL otomatis.
+4. Verifikasi HTTPS jalan (test curl https://api.benangrasa.com atau buka di browser), verifikasi HTTP redirect ke HTTPS otomatis (biasanya default certbot).
+5. Setelah SSL aktif, cross-check checkpoint bagian 3 & 6 (checklist keamanan) -- update status HTTPS dari "belum ada" jadi "ada", dan investigasi kenapa UFW bisa inactive padahal harusnya sudah pernah diaktifkan (kapan/kenapa mati -- reboot? manual disable? belum tahu).
+
+**Catatan konteks:** sesi ini juga sempat isi waktu untuk riset & beli domain (bukan cuma next-step SSL yang direncanakan) -- pembelian domain baru dianggap prasyarat SSL yang belum ada sebelumnya (domain belum pernah dibeli sebelum sesi ini).
