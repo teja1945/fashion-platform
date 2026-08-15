@@ -567,3 +567,31 @@ Urutan pasti #2-4 masih fleksibel, perlu dikonfirmasi ulang Teja di sesi mendata
 **Nasib hasil Stitch yang sudah terlanjur dibuat sebelum aturan ini disepakati (splash screen, State 1 login/device dikenal, dashboard produksi):** BELUM DIPUTUSKAN dibuang atau dipakai ulang -- perlu didiskusikan terpisah dengan Teja. Catatan: gaya visual (warna terracotta #853423, font Plus Jakarta Sans/Be Vietnam Pro, tone hangat) dari splash & State 1 login dinilai sudah bagus dan berpotensi dipakai ulang sebagai referensi gaya, TAPI konten/isinya (khususnya dashboard produksi: "sesi", target harian, mesin/area) TIDAK BOLEH dipakai mentah karena tidak berdasar data asli -- keputusan final menunggu diskusi dengan Teja.
 
 **Status: PRINSIP DISEPAKATI, permanen untuk semua room/sesi ke depan.** Progress rangkuman data untuk modul produksi (langkah 1-2 dari alur baru ini) sudah dimulai -- lihat kelanjutannya di sesi/checkpoint berikutnya sebelum mulai prompt Stitch modul produksi.
+
+## 102. Foto wajib sebelum submit stage + linking otomatis -- SELESAI & TERUJI (15 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Keamanan (anti-kecurangan: submission tanpa bukti fisik ditolak sistem, bukan cuma imbauan) dan Rasa Ketelitian (linking dibuat atomic dengan row lock FOR UPDATE untuk cegah race condition double-tap submit).
+
+**Konteks:** ide "foto wajib di setiap submission" sudah tercatat sejak archive 9 Agustus (anti-kecurangan submission/QC) tapi belum pernah diimplementasi -- ditemukan gap ini saat proses baru (Bagian 101) mengecek data/logic asli sebelum mendesain UI submit-stage.
+
+**Migration database (via Supabase MCP, add_submission_id_to_stage_photos):**
+- Kolom baru `submission_id` (uuid, nullable, FK ke stage_quantity_submissions, ON DELETE SET NULL) di production_stage_photos.
+- Partial index `idx_production_stage_photos_orphan_lookup` (production_job_id, stage, submission_id) WHERE submission_id IS NULL -- untuk pencarian cepat foto yang belum ter-link.
+- get_advisors security: 0 warning setelah migration.
+
+**Perubahan endpoint POST /v1/stage-submissions:**
+- Sebelum insert submission, cek foto "nganggur" (submission_id IS NULL) untuk production_job_id + stage_key yang sama, pakai FOR UPDATE (row lock) untuk cegah race condition kalau staff double-tap submit.
+- Kalau tidak ada foto nganggur -> tolak 400 "wajib upload foto bukti terlebih dahulu sebelum submit (POST /v1/photos)".
+- Kalau ada -> insert submission, lalu UPDATE semua foto nganggur itu jadi submission_id = submission baru, dalam transaksi withTenant yang sama (atomic).
+- Alur kerja staff: upload foto dulu (POST /v1/photos, belum terikat submission) -> baru submit qty (POST /v1/stage-submissions, otomatis link foto ke submission yang baru dibuat).
+
+**Verifikasi (3 skenario end-to-end via curl, staff QC Demo, job current_stage=qc):**
+1. Submit tanpa foto -- LULUS, ditolak 400 dengan pesan yang benar.
+2. Upload foto -- LULUS, submission_id awal null.
+3. Submit setelah ada foto -- LULUS, 201 dengan status PENDING_QC, foto otomatis ter-link ke submission_id yang baru dibuat (dikonfirmasi lewat query balik ke production_stage_photos).
+
+**Data test yang dipakai (untuk referensi ulang):** staff_id 664f0cbb-d4a6-41d5-b42d-40e46d817671 (Staff QC Demo), production_job_id 25352257-4cff-4377-85d7-2a63b05146fe (current_stage: qc), photo_id 72b7e7e2-82df-49d0-a5da-14abfba906c6, submission_id hasil test 5b62f0c5-31e5-4b6a-814a-a1999afd3374.
+
+**Catatan untuk sesi berikutnya:** endpoint ini baru menangani 1 foto nganggur per submit dengan asumsi sederhana (semua foto nganggur untuk job+stage yang sama ikut ter-link) -- kalau staff upload foto berkali-kali sebelum submit (misal salah pencet ulang), SEMUA foto nganggur itu ikut ter-link ke 1 submission yang sama, bukan cuma yang terbaru. Ini keputusan desain yang disengaja (lihat diskusi sebelum eksekusi), bukan bug.
+
+**Status: SELESAI & TERUJI.** Sesuai Bagian 101 (langkah 1-2, kumpulkan data/logic asli + cek ide lama di archive), ini melengkapi fondasi backend produksi sebelum lanjut ke desain UI layar submit-stage di Stitch.

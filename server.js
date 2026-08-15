@@ -536,6 +536,16 @@ app.post("/v1/stage-submissions", tenantResolver, requireApiKey, requireStaffSes
         };
       }
 
+      const orphanPhotos = await c.query(
+        `SELECT id FROM production_stage_photos
+         WHERE production_job_id = $1 AND stage = $2 AND submission_id IS NULL
+         FOR UPDATE`,
+        [production_job_id, stage_key]
+      );
+      if (orphanPhotos.rows.length === 0) {
+        return { httpStatus: 400, body: { error: "wajib upload foto bukti terlebih dahulu sebelum submit (POST /v1/photos)" } };
+      }
+
       const insertRes = await c.query(
         `INSERT INTO stage_quantity_submissions
            (tenant_id, production_job_id, stage_key, qty_submitted, submitted_by_staff_id)
@@ -543,7 +553,16 @@ app.post("/v1/stage-submissions", tenantResolver, requireApiKey, requireStaffSes
          RETURNING id, status, submitted_at`,
         [req.tenantId, production_job_id, stage_key, qty, staffId]
       );
-      return { httpStatus: 201, body: insertRes.rows[0] };
+      const newSubmission = insertRes.rows[0];
+
+      await c.query(
+        `UPDATE production_stage_photos
+         SET submission_id = $1
+         WHERE production_job_id = $2 AND stage = $3 AND submission_id IS NULL`,
+        [newSubmission.id, production_job_id, stage_key]
+      );
+
+      return { httpStatus: 201, body: newSubmission };
     });
     res.status(result.httpStatus).json(result.body);
   } catch (err) {
@@ -1055,6 +1074,488 @@ app.post("/v1/discrepancy-cases/:id/summon-owner", tenantResolver, requireApiKey
     }
     console.error("Error POST /v1/discrepancy-cases/:id/summon-owner:", err);
     res.status(500).json({ error: "Waduh, gagal manggil owner. Coba cek koneksi lo dan ulangi ya." });
+  } finally {
+    client.release();
+  }
+});
+
+
+// POST /v1/discrepancy-cases/:id/resolution
+// Mediator nulis (atau revisi) kesimpulan penyelesaian kasus discrepancy
+app.post("/v1/discrepancy-cases/:id/resolution", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
+  const { id: caseId } = req.params;
+  const { resolution_notes } = req.body || {};
+  const { staffId } = req.staffSession;
+
+  if (!resolution_notes || !resolution_notes.trim()) {
+    return res.status(400).json({ error: "Kesimpulannya kosong nih. Tulis dulu baru kirim ya." });
+  }
+
+  const client = await pool.connect();
+  try {
+    const result = await withTenantAndStaff(client, req.tenantId, staffId, async (c) => {
+      const caseResult = await c.query(
+        `SELECT id, submitter_staff_id, receiver_staff_id, mediator_id, status
+         FROM discrepancy_cases WHERE id = $1`,
+        [caseId]
+      );
+      if (caseResult.rows.length === 0) {
+        throw { statusCode: 404, message: "Kasusnya gak ketemu, atau lo emang gak terlibat di kasus ini." };
+      }
+      const caseRow = caseResult.rows[0];
+      if (caseRow.status === "RESOLVED") {
+        throw { statusCode: 409, message: "Kasus ini udah kelar (RESOLVED), gak bisa diubah lagi." };
+      }
+
+      let mediatorStaffId = null;
+      if (caseRow.mediator_id) {
+        const mediatorCheck = await c.query(
+          `SELECT staff_id FROM tenant_mediators WHERE id = $1`,
+          [caseRow.mediator_id]
+        );
+        if (mediatorCheck.rows.length > 0) mediatorStaffId = mediatorCheck.rows[0].staff_id;
+      }
+
+      const isMediator = mediatorStaffId === staffId;
+      if (!isMediator) {
+        throw {
+          statusCode: 403,
+          message: "Kesimpulan cuma boleh ditulis penengah, biar netral -- gak bisa dari pihak yang lagi bersengketa."
+        };
+      }
+
+      const priorResult = await c.query(
+        `SELECT id FROM discrepancy_thread_messages
+         WHERE discrepancy_case_id = $1 AND action_subtype IN ('resolution_written', 'resolution_revised')
+         ORDER BY created_at DESC LIMIT 1`,
+        [caseId]
+      );
+      const isRevision = priorResult.rows.length > 0;
+      const priorMessageId = isRevision ? priorResult.rows[0].id : null;
+
+      const msgResult = await c.query(
+        `INSERT INTO discrepancy_thread_messages
+           (tenant_id, discrepancy_case_id, sender_staff_id, message_type, action_subtype, content, corrects_message_id)
+         VALUES ($1, $2, $3, 'mediator_action', $4, $5, $6)
+         RETURNING *`,
+        [
+          req.tenantId,
+          caseId,
+          staffId,
+          isRevision ? "resolution_revised" : "resolution_written",
+          resolution_notes.trim(),
+          priorMessageId
+        ]
+      );
+      const message = msgResult.rows[0];
+
+      const updateResult = await c.query(
+        `UPDATE discrepancy_cases
+         SET resolution_notes = $1,
+             submitter_confirmed_at = NULL,
+             receiver_confirmed_at = NULL,
+             status = CASE WHEN status = 'OPEN' THEN 'IN_DISCUSSION' ELSE status END
+         WHERE id = $2
+         RETURNING submitter_staff_id, receiver_staff_id, status`,
+        [resolution_notes.trim(), caseId]
+      );
+      const updatedCase = updateResult.rows[0];
+
+      const notifyTitle = isRevision
+        ? "Kesimpulan direvisi, tolong konfirmasi ulang"
+        : "Ada kesimpulan dari penengah, tolong konfirmasi";
+      const notifyBody = isRevision
+        ? "Penengah baru aja ngerevisi kesimpulan kasus diskusi kamu. Konfirmasi ulang persetujuan kamu ya."
+        : "Penengah udah kasih kesimpulan buat kasus diskusi kamu. Cek dan konfirmasi persetujuan kamu ya.";
+
+      const recipients = [updatedCase.submitter_staff_id, updatedCase.receiver_staff_id];
+      for (const recipientId of recipients) {
+        await c.query(
+          `INSERT INTO notifications
+             (tenant_id, recipient_staff_id, trigger_type, source_table, source_id, title, body, related_staff_id)
+           VALUES ($1, $2, 'discrepancy_resolution_written', 'discrepancy_cases', $3, $4, $5, $6)`,
+          [req.tenantId, recipientId, caseId, notifyTitle, notifyBody, staffId]
+        );
+      }
+
+      return { message, caseRow: { ...caseRow, ...updatedCase }, mediatorStaffId, isRevision };
+    });
+
+    broadcastToDiscrepancyCase(req.tenantId, result.caseRow, result.mediatorStaffId, {
+      type: "discrepancy_message",
+      discrepancy_case_id: caseId,
+      message: result.message,
+      photo: null,
+    });
+
+    res.status(201).json({ message: result.message, isRevision: result.isRevision });
+  } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    console.error("Error POST /v1/discrepancy-cases/:id/resolution:", err);
+    res.status(500).json({ error: "Waduh, gagal kesimpen. Coba cek koneksi lo dan ulangi ya." });
+  } finally {
+    client.release();
+  }
+});
+
+
+// POST /v1/discrepancy-cases/:id/confirm
+// Submitter atau receiver menyetujui resolution_notes yang ditulis mediator.
+// Kalau keduanya sudah confirm, kasus otomatis jadi RESOLVED (kesepakatan bersama, bukan mandat mediator).
+app.post("/v1/discrepancy-cases/:id/confirm", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
+  const { id: caseId } = req.params;
+  const { staffId } = req.staffSession;
+
+  const client = await pool.connect();
+  try {
+    const result = await withTenantAndStaff(client, req.tenantId, staffId, async (c) => {
+      const caseResult = await c.query(
+        `SELECT id, submitter_staff_id, receiver_staff_id, mediator_id, status, resolution_notes,
+                submitter_confirmed_at, receiver_confirmed_at
+         FROM discrepancy_cases WHERE id = $1`,
+        [caseId]
+      );
+      if (caseResult.rows.length === 0) {
+        throw { statusCode: 404, message: "Kasusnya gak ketemu, atau lo emang gak terlibat di kasus ini." };
+      }
+      const caseRow = caseResult.rows[0];
+      if (caseRow.status === "RESOLVED") {
+        throw { statusCode: 409, message: "Kasus ini udah kelar (RESOLVED), gak perlu konfirmasi lagi." };
+      }
+      if (!caseRow.resolution_notes || !caseRow.resolution_notes.trim()) {
+        throw { statusCode: 409, message: "Belum ada kesimpulan dari penengah. Tunggu penengah nulis kesimpulan dulu ya." };
+      }
+
+      const isSubmitter = caseRow.submitter_staff_id === staffId;
+      const isReceiver = caseRow.receiver_staff_id === staffId;
+      if (!isSubmitter && !isReceiver) {
+        throw {
+          statusCode: 403,
+          message: "Konfirmasi cuma boleh dari pihak yang bersengketa (yang ngirim atau yang nerima barang)."
+        };
+      }
+
+      const confirmColumn = isSubmitter ? "submitter_confirmed_at" : "receiver_confirmed_at";
+      const alreadyConfirmed = isSubmitter ? caseRow.submitter_confirmed_at : caseRow.receiver_confirmed_at;
+      if (alreadyConfirmed) {
+        throw { statusCode: 409, message: "Lo udah konfirmasi kesimpulan ini sebelumnya." };
+      }
+
+      let mediatorStaffId = null;
+      if (caseRow.mediator_id) {
+        const mediatorCheck = await c.query(
+          `SELECT staff_id FROM tenant_mediators WHERE id = $1`,
+          [caseRow.mediator_id]
+        );
+        if (mediatorCheck.rows.length > 0) mediatorStaffId = mediatorCheck.rows[0].staff_id;
+      }
+
+      const roleLabel = isSubmitter ? "Submitter" : "Receiver";
+      const msgResult = await c.query(
+        `INSERT INTO discrepancy_thread_messages
+           (tenant_id, discrepancy_case_id, sender_staff_id, message_type, action_subtype, content)
+         VALUES ($1, $2, $3, 'party_action', 'confirmed_resolution', $4)
+         RETURNING *`,
+        [req.tenantId, caseId, staffId, `${roleLabel} menyetujui kesimpulan penyelesaian.`]
+      );
+      const message = msgResult.rows[0];
+
+      const otherAlreadyConfirmed = isSubmitter ? caseRow.receiver_confirmed_at : caseRow.submitter_confirmed_at;
+      const bothConfirmed = !!otherAlreadyConfirmed;
+
+      const updateResult = await c.query(
+        `UPDATE discrepancy_cases
+         SET ${confirmColumn} = NOW(),
+             status = CASE WHEN $2 THEN 'RESOLVED' ELSE status END,
+             resolved_at = CASE WHEN $2 THEN NOW() ELSE resolved_at END,
+             resolved_by_staff_id = CASE WHEN $2 THEN $3 ELSE resolved_by_staff_id END,
+             resolved_with_mandate = CASE WHEN $2 THEN false ELSE resolved_with_mandate END
+         WHERE id = $1
+         RETURNING submitter_staff_id, receiver_staff_id, status`,
+        [caseId, bothConfirmed, staffId]
+      );
+      const updatedCase = updateResult.rows[0];
+
+      if (bothConfirmed) {
+        const recipients = [updatedCase.submitter_staff_id, updatedCase.receiver_staff_id, mediatorStaffId].filter(
+          (id) => id && id !== staffId
+        );
+        for (const recipientId of recipients) {
+          await c.query(
+            `INSERT INTO notifications
+               (tenant_id, recipient_staff_id, trigger_type, source_table, source_id, title, body, related_staff_id)
+             VALUES ($1, $2, 'discrepancy_resolved', 'discrepancy_cases', $3, $4, $5, $6)`,
+            [
+              req.tenantId,
+              recipientId,
+              caseId,
+              "Kasus diskusi sudah selesai",
+              "Kedua pihak sudah setuju sama kesimpulan penengah. Kasus ini resmi ditutup.",
+              staffId
+            ]
+          );
+        }
+      } else {
+        const otherPartyId = isSubmitter ? updatedCase.receiver_staff_id : updatedCase.submitter_staff_id;
+        await c.query(
+          `INSERT INTO notifications
+             (tenant_id, recipient_staff_id, trigger_type, source_table, source_id, title, body, related_staff_id)
+           VALUES ($1, $2, 'discrepancy_confirmed', 'discrepancy_cases', $3, $4, $5, $6)`,
+          [
+            req.tenantId,
+            otherPartyId,
+            caseId,
+            `${roleLabel} sudah konfirmasi`,
+            "Salah satu pihak sudah setuju sama kesimpulan penengah. Giliran kamu konfirmasi juga ya.",
+            staffId
+          ]
+        );
+      }
+
+      return { message, caseRow: { ...caseRow, ...updatedCase }, mediatorStaffId, bothConfirmed };
+    });
+
+    broadcastToDiscrepancyCase(req.tenantId, result.caseRow, result.mediatorStaffId, {
+      type: "discrepancy_message",
+      discrepancy_case_id: caseId,
+      message: result.message,
+      photo: null,
+    });
+
+    res.status(201).json({ message: result.message, resolved: result.bothConfirmed });
+  } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    console.error("Error POST /v1/discrepancy-cases/:id/confirm:", err);
+    res.status(500).json({ error: "Waduh, gagal kekirim konfirmasinya. Coba cek koneksi lo dan ulangi ya." });
+  } finally {
+    client.release();
+  }
+});
+
+
+// POST /v1/discrepancy-cases/:id/force-resolve
+// Mediator memutus sepihak kasus severity NORMAL, walau salah satu/kedua pihak belum/tidak setuju.
+// Kasus severity SERIOUS wajib eskalasi ke owner (endpoint terpisah), tidak bisa lewat sini.
+app.post("/v1/discrepancy-cases/:id/force-resolve", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
+  const { id: caseId } = req.params;
+  const { staffId } = req.staffSession;
+
+  const client = await pool.connect();
+  try {
+    const result = await withTenantAndStaff(client, req.tenantId, staffId, async (c) => {
+      const caseResult = await c.query(
+        `SELECT id, submitter_staff_id, receiver_staff_id, mediator_id, status, severity, resolution_notes
+         FROM discrepancy_cases WHERE id = $1`,
+        [caseId]
+      );
+      if (caseResult.rows.length === 0) {
+        throw { statusCode: 404, message: "Kasusnya gak ketemu, atau lo emang gak terlibat di kasus ini." };
+      }
+      const caseRow = caseResult.rows[0];
+      if (caseRow.status === "RESOLVED") {
+        throw { statusCode: 409, message: "Kasus ini udah kelar (RESOLVED), gak bisa diproses lagi." };
+      }
+      if (caseRow.severity === "SERIOUS") {
+        throw {
+          statusCode: 403,
+          message: "Kasus severity SERIOUS gak bisa diputus sepihak. Wajib eskalasi ke owner ya."
+        };
+      }
+      if (!caseRow.resolution_notes || !caseRow.resolution_notes.trim()) {
+        throw { statusCode: 409, message: "Belum ada kesimpulan yang ditulis. Tulis kesimpulan dulu sebelum memutus." };
+      }
+
+      let mediatorStaffId = null;
+      if (caseRow.mediator_id) {
+        const mediatorCheck = await c.query(
+          `SELECT staff_id FROM tenant_mediators WHERE id = $1`,
+          [caseRow.mediator_id]
+        );
+        if (mediatorCheck.rows.length > 0) mediatorStaffId = mediatorCheck.rows[0].staff_id;
+      }
+
+      const isMediator = mediatorStaffId === staffId;
+      if (!isMediator) {
+        throw {
+          statusCode: 403,
+          message: "Cuma penengah kasus ini yang bisa memutus sepihak, biar tetap netral."
+        };
+      }
+
+      const msgResult = await c.query(
+        `INSERT INTO discrepancy_thread_messages
+           (tenant_id, discrepancy_case_id, sender_staff_id, message_type, action_subtype, content)
+         VALUES ($1, $2, $3, 'mediator_action', 'force_resolved', $4)
+         RETURNING *`,
+        [
+          req.tenantId,
+          caseId,
+          staffId,
+          "Penengah memutus kasus ini secara sepihak berdasarkan kesimpulan yang sudah ditulis, tanpa menunggu persetujuan penuh kedua pihak."
+        ]
+      );
+      const message = msgResult.rows[0];
+
+      const updateResult = await c.query(
+        `UPDATE discrepancy_cases
+         SET status = 'RESOLVED',
+             resolved_at = NOW(),
+             resolved_by_staff_id = $2,
+             resolved_with_mandate = true
+         WHERE id = $1
+         RETURNING submitter_staff_id, receiver_staff_id, status`,
+        [caseId, staffId]
+      );
+      const updatedCase = updateResult.rows[0];
+
+      const recipients = [updatedCase.submitter_staff_id, updatedCase.receiver_staff_id];
+      for (const recipientId of recipients) {
+        await c.query(
+          `INSERT INTO notifications
+             (tenant_id, recipient_staff_id, trigger_type, source_table, source_id, title, body, related_staff_id)
+           VALUES ($1, $2, 'discrepancy_force_resolved', 'discrepancy_cases', $3, $4, $5, $6)`,
+          [
+            req.tenantId,
+            recipientId,
+            caseId,
+            "Kasus diputus penengah",
+            "Penengah sudah memutus kasus diskusi ini berdasarkan kesimpulan yang ditulis, meski belum ada persetujuan penuh dari kedua pihak. Kasus ini resmi ditutup.",
+            staffId
+          ]
+        );
+      }
+
+      return { message, caseRow: { ...caseRow, ...updatedCase }, mediatorStaffId };
+    });
+
+    broadcastToDiscrepancyCase(req.tenantId, result.caseRow, result.mediatorStaffId, {
+      type: "discrepancy_message",
+      discrepancy_case_id: caseId,
+      message: result.message,
+      photo: null,
+    });
+
+    res.status(201).json({ message: result.message });
+  } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    console.error("Error POST /v1/discrepancy-cases/:id/force-resolve:", err);
+    res.status(500).json({ error: "Waduh, gagal memutus kasusnya. Coba cek koneksi lo dan ulangi ya." });
+  } finally {
+    client.release();
+  }
+});
+
+
+// POST /v1/discrepancy-cases/:id/owner-resolve
+// Owner memutus kasus discrepancy (severity apapun), pakai wewenang penuh pemilik tenant.
+// Owner boleh pakai resolution_notes yang sudah ada, atau nulis kesimpulannya sendiri.
+app.post("/v1/discrepancy-cases/:id/owner-resolve", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
+  const { id: caseId } = req.params;
+  const { resolution_notes } = req.body || {};
+  const { staffId, role } = req.staffSession;
+
+  if (!isPrivileged(role)) {
+    return res.status(403).json({ error: "Cuma owner yang bisa memutus kasus lewat sini." });
+  }
+
+  const client = await pool.connect();
+  try {
+    const result = await withTenantAndStaff(client, req.tenantId, staffId, async (c) => {
+      const caseResult = await c.query(
+        `SELECT id, submitter_staff_id, receiver_staff_id, mediator_id, status, resolution_notes
+         FROM discrepancy_cases WHERE id = $1`,
+        [caseId]
+      );
+      if (caseResult.rows.length === 0) {
+        throw { statusCode: 404, message: "Kasusnya gak ketemu." };
+      }
+      const caseRow = caseResult.rows[0];
+      if (caseRow.status === "RESOLVED") {
+        throw { statusCode: 409, message: "Kasus ini udah kelar (RESOLVED), gak bisa diproses lagi." };
+      }
+
+      const ownerWroteNew = resolution_notes && resolution_notes.trim();
+      const finalNotes = ownerWroteNew ? resolution_notes.trim() : caseRow.resolution_notes;
+      if (!finalNotes || !finalNotes.trim()) {
+        throw {
+          statusCode: 400,
+          message: "Belum ada kesimpulan sama sekali. Tulis kesimpulannya dulu ya (lewat resolution_notes)."
+        };
+      }
+
+      let mediatorStaffId = null;
+      if (caseRow.mediator_id) {
+        const mediatorCheck = await c.query(
+          `SELECT staff_id FROM tenant_mediators WHERE id = $1`,
+          [caseRow.mediator_id]
+        );
+        if (mediatorCheck.rows.length > 0) mediatorStaffId = mediatorCheck.rows[0].staff_id;
+      }
+
+      const msgResult = await c.query(
+        `INSERT INTO discrepancy_thread_messages
+           (tenant_id, discrepancy_case_id, sender_staff_id, message_type, action_subtype, content)
+         VALUES ($1, $2, $3, 'owner_action', 'owner_resolved', $4)
+         RETURNING *`,
+        [req.tenantId, caseId, staffId, finalNotes]
+      );
+      const message = msgResult.rows[0];
+
+      const updateResult = await c.query(
+        `UPDATE discrepancy_cases
+         SET resolution_notes = $1,
+             status = 'RESOLVED',
+             resolved_at = NOW(),
+             resolved_by_staff_id = $2,
+             resolved_with_mandate = true
+         WHERE id = $3
+         RETURNING submitter_staff_id, receiver_staff_id, status`,
+        [finalNotes, staffId, caseId]
+      );
+      const updatedCase = updateResult.rows[0];
+
+      const recipients = [updatedCase.submitter_staff_id, updatedCase.receiver_staff_id, mediatorStaffId].filter(
+        (id) => id && id !== staffId
+      );
+      for (const recipientId of recipients) {
+        await c.query(
+          `INSERT INTO notifications
+             (tenant_id, recipient_staff_id, trigger_type, source_table, source_id, title, body, related_staff_id)
+           VALUES ($1, $2, 'discrepancy_owner_resolved', 'discrepancy_cases', $3, $4, $5, $6)`,
+          [
+            req.tenantId,
+            recipientId,
+            caseId,
+            "Kasus diputus owner",
+            "Owner sudah memutus kasus diskusi ini secara final. Kasus ini resmi ditutup.",
+            staffId
+          ]
+        );
+      }
+
+      return { message, caseRow: { ...caseRow, ...updatedCase }, mediatorStaffId };
+    });
+
+    broadcastToDiscrepancyCase(req.tenantId, result.caseRow, result.mediatorStaffId, {
+      type: "discrepancy_message",
+      discrepancy_case_id: caseId,
+      message: result.message,
+      photo: null,
+    });
+
+    res.status(201).json({ message: result.message });
+  } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    console.error("Error POST /v1/discrepancy-cases/:id/owner-resolve:", err);
+    res.status(500).json({ error: "Waduh, gagal memutus kasusnya. Coba cek koneksi lo dan ulangi ya." });
   } finally {
     client.release();
   }
