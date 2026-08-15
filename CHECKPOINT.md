@@ -342,3 +342,43 @@ Next: Langkah 2 — bangun endpoint mediator tulis resolution_notes, endpoint su
 - Variable shell $MY_API_KEY hilang kalau sesi terminal Termux/SSH terputus dan tersambung ulang -- wajib export ulang tiap sesi baru sebelum testing curl.
 
 **Next step -- Langkah 4 (dari checkpoint 91, sekarang jadi Langkah 3 aktual berikutnya):** Endpoint force-resolve untuk severity NORMAL (mediator memutus sepihak kalau salah satu pihak tidak mau confirm, ditandai resolved_with_mandate: true). Setelah itu: endpoint eskalasi ke owner untuk severity SERIOUS.
+
+## 93. Endpoint force-resolve & owner-resolve -- SELESAI & TERUJI (4/4 endpoint discrepancy kelar)
+
+**Rasa yang dipenuhi:** Rasa Keamanan (resolved_with_mandate membedakan keputusan sepihak dari konsensus, otorisasi berlapis per role) dan Rasa Ketelitian (setiap skenario ditest satu-satu termasuk yang "seharusnya ditolak", tidak dianggap remeh meski pola kodenya mirip endpoint sebelumnya).
+
+### Endpoint 3: POST /v1/discrepancy-cases/:id/force-resolve
+- Cuma mediator kasus itu yang bisa panggil (pola otorisasi sama seperti endpoint resolution).
+- Cuma untuk severity NORMAL -- severity SERIOUS ditolak 403, wajib eskalasi ke owner.
+- Wajib resolution_notes sudah ada isinya -- tidak bisa memutus kasus kosongan.
+- Boleh dipanggil kapan saja, TIDAK perlu menunggu ada pihak yang mencoba confirm dulu -- keputusan disepakati: mediator paling mengerti situasi lapangan, jangan dipaksa menunggu proses formal kalau mediator sudah yakin.
+- Hasil: status RESOLVED, resolved_with_mandate: true (beda dari confirm biasa yang false -- ini keputusan sepihak, bukan kesepakatan).
+- Migration: menambah 'force_resolved' ke action_subtype, 'discrepancy_force_resolved' ke trigger_type.
+- Testing (kasus baru dibuat manual d2ea28bb... untuk NORMAL, dan 2781dd0b... untuk SERIOUS): tanpa resolution_notes ditolak 409 (LULUS), severity SERIOUS ditolak 403 (LULUS, sengaja dites terpisah bukan diasumsikan), force-resolve berhasil 201 dengan resolved_with_mandate true (LULUS), kasus RESOLVED dicoba lagi ditolak 409 (LULUS).
+
+### Endpoint 4: POST /v1/discrepancy-cases/:id/owner-resolve
+- Yang boleh akses: role owner DAN admin (pakai helper isPrivileged() yang sudah ada di kode) -- keputusan disepakati eksplisit: kalau owner sedang bepergian/tidak bisa dihubungi, admin (staff kepercayaan owner) tetap bisa mutusin kasus supaya kerjaan tidak macet menunggu owner.
+- Boleh dipakai untuk severity APAPUN (NORMAL atau SERIOUS) -- owner/admin punya wewenang penuh override kapan saja, tidak dibatasi severity, karena "owner bebas masuk kemana saja tanpa panggilan siapapun" adalah hak dia.
+- Owner/admin boleh pakai resolution_notes yang sudah ditulis mediator, ATAU menulis kesimpulannya sendiri dari nol (body resolution_notes opsional) -- termasuk kasus tanpa mediator sama sekali (mediator_id NULL), owner tetap bisa langsung memutus.
+- Pesan di thread pakai label baru: message_type 'owner_action', action_subtype 'owner_resolved' -- sengaja dibedakan dari mediator_action supaya riwayat jelas ini keputusan siapa.
+- Hasil: status RESOLVED, resolved_with_mandate: true, resolution_notes ikut terupdate kalau owner menulis versi baru.
+- Notifikasi dikirim ke submitter, receiver, DAN mediator (kalau ada) -- semua pihak perlu tahu ini keputusan owner/admin.
+- Migration: menambah 'owner_action' ke message_type, 'owner_resolved' ke action_subtype, 'discrepancy_owner_resolved' ke trigger_type.
+- Testing (kasus 2781dd0b... untuk pakai notes existing, kasus baru bc39474b... untuk owner menulis sendiri tanpa mediator sama sekali): staff biasa dicoba akses ditolak 403 (LULUS), owner pakai resolution_notes existing berhasil dengan severity SERIOUS tetap kepake (LULUS), kasus RESOLVED dicoba lagi ditolak 409 (LULUS), owner menulis kesimpulan sendiri dari nol tanpa mediator sama sekali berhasil (LULUS).
+
+**Kode:** disisipkan via python3 heredoc. force-resolve di baris 1321-1434 (setelah endpoint confirm), owner-resolve di baris 1436-1544 (setelah force-resolve), keduanya sebelum GET /v1/notifications.
+
+**STATUS FITUR DISCREPANCY: 4/4 endpoint inti selesai & teruji.**
+1. Mediator nulis resolution (Checkpoint 91)
+2. Submitter/receiver confirm (Checkpoint 92)
+3. Force-resolve, mediator, severity NORMAL (Checkpoint 93)
+4. Owner-resolve, owner/admin, severity apapun (Checkpoint 93)
+
+**Ide baru yang disampaikan Teja, dicatat penuh untuk dibahas terpisah nanti (BELUM DIKERJAKAN, bukan bagian dari 4 endpoint di atas):**
+- Owner bisa memberi "mandat" eksplisit ke mediator untuk memutus kasus tanpa perlu menunggu owner turun tangan sendiri, bahkan mungkin untuk kasus yang biasanya butuh keputusan owner. Perlu dipikirkan: bagaimana bentuk mandat ini disimpan di database (per-kasus? per-mediator? ada masa berlaku?), dan bagaimana ini berinteraksi dengan endpoint force-resolve (severity NORMAL) yang sudah ada.
+- Untuk kasus SERIOUS, kalau owner sedang tidak bisa dihubungi/di luar, ada opsi: (a) kerjaan tetap jalan dan kasus dibahas nanti pas owner sudah ada, atau (b) ada notifikasi WhatsApp ke mediator dari owner yang isinya sudah bisa dianggap sebagai keputusan resmi begitu dibaca ("read = boleh disimpulkan"). Ini menyiratkan kemungkinan integrasi WhatsApp Business API atau semacamnya sebagai kanal keputusan owner jarak jauh -- scope besar, belum dirancang sama sekali.
+
+**Catatan teknis belum diperbaiki (dibawa dari Checkpoint 92, MASIH BELUM DIINVESTIGASI):**
+- Worker gap monitor (worker.js, fungsi checkGaps) masih menghasilkan error "Query read timeout" dan "checkGaps() masih berjalan dari tick sebelumnya, skip tick ini." di error log. Di luar scope endpoint discrepancy. Perlu dicek terpisah supaya tidak menumpuk jadi utang teknis.
+
+**Next step:** Belum ada next step konkret yang disepakati -- 4 endpoint inti discrepancy sudah selesai. Kemungkinan arah selanjutnya: (a) investigasi bug gap monitor yang tertunda, (b) rancang fitur mandat mediator dari owner, (c) mulai fitur backend lain di luar discrepancy, atau (d) mulai frontend. Perlu dibahas dengan Teja di sesi berikutnya.
