@@ -403,3 +403,29 @@ Poin penting: owner bisa jadi punya BEBERAPA bisnis sekaligus (contoh yang diseb
 **Kenapa belum dikerjakan sekarang:** scope-nya besar dan masing-masing jenis laporan butuh sesi rancang tersendiri (data dari tabel mana, bentuk angkanya seperti apa, siapa yang boleh lihat, dsb) -- beda sifat dari endpoint discrepancy yang barusan selesai (yang sifatnya "aksi/action", laporan ini sifatnya "menyajikan ulang data yang sudah ada dengan cara baru"). Disepakati untuk dibahas satu-satu di sesi terpisah, tidak digabung sekaligus.
 
 **Status modul ini: BARU IDE, BELUM ADA RANCANGAN TEKNIS SAMA SEKALI.** Perlu sesi khusus untuk mulai merancang, kemungkinan dimulai dari salah satu jenis laporan dulu (misal laporan keuangan) baru lanjut ke yang lain.
+
+## 95. Prinsip disepakati: cara eksekusi "Rasa Grosir" untuk modul-modul di Peta Bagian 88
+
+**Konteks:** Teja tidak pernah kerja di pabrik, jadi tidak tahu persis modul mana yang beneran dibutuhkan pabrik nyata. Muncul pertanyaan: mending sediakan modul-modul di Peta Bagian 88 dari sekarang (prinsip Rasa Grosir -- sedia ruang di depan), atau tunggu validasi dari pabrik nyata dulu supaya tidak salah bangun.
+
+**Kesepakatan (arahan eksplisit dari Teja, prinsip permanen untuk sesi berikutnya):** LEBIH BAIK DISEDIAKAN daripada tidak -- prinsip Teja: "ga ada yang percuma". Rasa Grosir (Bagian 88) tetap jadi pegangan utama.
+
+**Nuansa yang disepakati bersama, supaya "disediakan" tidak berarti kerja dua kali:**
+- Untuk tiap modul baru yang mulai dikerjakan, WAJIB ditentukan dulu di awal: apakah sesi ini membangun STRUKTUR/KERANGKA saja (skema tabel, kolom yang disiapkan tapi belum aktif dipakai -- murah, risiko rendah, konsisten dengan pola yang sudah dipraktikkan di mediator_backups/Bagian 87), atau membangun LOGIC PENUH yang langsung bisa dipakai (endpoint lengkap, aturan bisnis detail -- lebih mahal, berisiko harus dibongkar ulang kalau ternyata salah tebak kebutuhan pabrik nyata, karena Teja belum ada pengalaman langsung dari lapangan).
+- Modul yang cara kerjanya kemungkinan besar beda-beda tiap pabrik (contoh: Modul D Finance, Modul E HRD) lebih berisiko kalau logic penuh dibangun dari tebakan semata -- prioritas sediakan struktur dulu untuk modul jenis ini, bukan logic detail.
+- Modul yang jelas arahnya dan nyambung langsung ke data yang sudah ada (contoh: Modul B PPIC) lebih aman dibangun lebih lengkap dari awal.
+- Saran (belum keputusan final, masih terbuka didiskusikan): begitu Modul A + discrepancy selesai dan ada frontend, coba tawarkan ke 1 pabrik kecil nyata (bisa gratis di awal) supaya modul prioritas berikutnya divalidasi dari kebutuhan nyata, bukan dari riset/tebakan semata.
+
+**Status: PRINSIP DISEPAKATI, BELUM ADA MODUL BARU DIMULAI.** Sesi berikutnya, sebelum mulai modul manapun dari Peta Bagian 88, tanyakan dulu ke Teja: struktur dulu atau logic penuh, sesuai prinsip di atas.
+
+## 96. Klarifikasi: relasi Modul A dan Modul B (PPIC) dari Peta Bagian 88
+
+**Konteks:** Teja tanya rincian bagaimana Modul B (PPIC) nyambung ke Modul A (Alur Produksi Utama).
+
+**Penjelasan yang disepakati:** Modul B TIDAK menyimpan data produksi sendiri -- dia membaca ulang data yang sudah ada di tabel Modul A (production_jobs, stage_quantity_submissions, dan juga discrepancy_cases untuk visibility kasus sengketa) lalu menyajikannya dengan cara berbeda untuk kebutuhan orang yang memantau BANYAK job sekaligus (bukan operator yang cuma pegang 1 job). Contoh konkret yang perlu ditampilkan Modul B: job yang telat dari target stage (gap_status), progress mendekati deadline, dan job yang sedang ada kasus discrepancy terbuka.
+
+**TEMUAN PENTING yang menghubungkan ke catatan teknis yang sudah ada:** worker.js sudah punya fungsi checkGaps() yang tampaknya memang dirancang untuk menghitung gap_status ini -- KEMUNGKINAN BESAR ini adalah cikal-bakal/bagian awal dari Modul B yang sudah mulai dibangun sebelumnya, BUKAN Modul B yang belum tersentuh sama sekali. Fungsi ini persis yang sedang error ("Query read timeout", "checkGaps() masih berjalan dari tick sebelumnya, skip tick ini.") yang sudah dicatat di Checkpoint 92 dan BELUM DIINVESTIGASI.
+
+**Implikasi untuk next steps:** ketika sesi mulai mengerjakan Modul B (PPIC) -- baik struktur maupun logic penuh, sesuai prinsip Bagian 95 -- WAJIB mulai dari investigasi checkGaps() di worker.js dulu, bukan membangun dari nol tanpa cek yang sudah ada. Ini menyatukan 2 item next steps yang sebelumnya tercatat terpisah (bug checkGaps yang tertunda + rencana Modul B) menjadi 1 alur kerja yang sama.
+
+**Status: PENJELASAN/KLARIFIKASI, belum ada kode diubah.**
