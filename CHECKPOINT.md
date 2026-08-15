@@ -595,3 +595,17 @@ Urutan pasti #2-4 masih fleksibel, perlu dikonfirmasi ulang Teja di sesi mendata
 **Catatan untuk sesi berikutnya:** endpoint ini baru menangani 1 foto nganggur per submit dengan asumsi sederhana (semua foto nganggur untuk job+stage yang sama ikut ter-link) -- kalau staff upload foto berkali-kali sebelum submit (misal salah pencet ulang), SEMUA foto nganggur itu ikut ter-link ke 1 submission yang sama, bukan cuma yang terbaru. Ini keputusan desain yang disengaja (lihat diskusi sebelum eksekusi), bukan bug.
 
 **Status: SELESAI & TERUJI.** Sesuai Bagian 101 (langkah 1-2, kumpulkan data/logic asli + cek ide lama di archive), ini melengkapi fondasi backend produksi sebelum lanjut ke desain UI layar submit-stage di Stitch.
+
+## 103. Temuan: kode Bagian 91-93 (discrepancy resolution) belum pernah ter-commit ke GitHub sebelum sesi ini (15 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Ketelitian (celah proses ditemukan dan diakui terbuka, bukan didiamkan karena "kebetulan aman").
+
+**Temuan:** saat commit Bagian 102 (foto wajib), `git commit` menunjukkan 503 insertions di server.js -- jauh lebih besar dari perkiraan (~17 baris perubahan foto-wajib). Dicek via `git diff HEAD~1 HEAD -- server.js`, ternyata ~488 baris di antaranya adalah kode endpoint discrepancy-cases (resolution, confirm, force-resolve, eskalasi -- dicatat SELESAI & TERUJI di Bagian 91-93) yang SUDAH lama berjalan di production VPS, tapi TIDAK PERNAH ter-commit ke git sebelumnya. Kemungkinan sesi/room yang mengerjakan Bagian 91-93 lupa menjalankan git add/commit/push setelah verifikasi kode selesai, dan checkpoint tetap tercatat "SELESAI" karena verifikasi fungsional (curl testing) memang berhasil -- status checkpoint tidak salah, tapi backup ke GitHub tertinggal.
+
+**Resiko yang sempat ada:** kalau VPS rusak/hilang sebelum ditemukan, kode Bagian 91-93 (endpoint discrepancy resolution) akan HILANG PERMANEN karena satu-satunya salinan cuma di VPS, tidak ada di GitHub.
+
+**Sudah aman sekarang:** kode tersebut ikut ter-commit bersamaan dengan Bagian 102 (commit 54372f7), sekarang sudah ter-backup di GitHub.
+
+**Pelajaran untuk semua room/sesi ke depan:** sebelum `git commit`, kalau jumlah insertions/deletions terasa JANGGAL (jauh lebih besar dari perkiraan perubahan sesi ini), WAJIB cek dulu pakai `git diff HEAD -- <file>` atau `git status` SEBELUM commit -- jangan asumsikan angka besar berarti error, tapi juga jangan diabaikan begitu saja. Bisa jadi temuan penting seperti ini (kode lama yang ketinggalan commit), bukan cuma bug.
+
+**Status: SUDAH DIPERBAIKI, dicatat sebagai pembelajaran proses permanen.**

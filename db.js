@@ -5,6 +5,7 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL || "postgres://localhost:5432/ltos",
   query_timeout: 15000,
   connectionTimeoutMillis: 15000,
+  max: 20,
 });
 
 pool.on("error", (err) => {

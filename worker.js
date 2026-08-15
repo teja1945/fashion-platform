@@ -90,9 +90,10 @@ async function checkGaps() {
   isRunning = true;
 
   const client = await pool.connect();
-  client.on("error", (err) => {
+  const onClientError = (err) => {
     console.error("checkGaps client error:", err.message);
-  });
+  };
+  client.on("error", onClientError);
 
   try {
     const lockRes = await client.query(`SELECT pg_try_advisory_lock($1) AS locked`, [ADVISORY_LOCK_KEY]);
@@ -114,6 +115,7 @@ async function checkGaps() {
       await client.query(`SELECT pg_advisory_unlock($1)`, [ADVISORY_LOCK_KEY]);
     }
   } finally {
+    client.removeListener("error", onClientError);
     client.release();
     isRunning = false;
   }
