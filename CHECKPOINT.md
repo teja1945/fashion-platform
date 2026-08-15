@@ -311,3 +311,34 @@ Next: Langkah 2 — bangun endpoint mediator tulis resolution_notes, endpoint su
 - Pola "cek dulu CHECK constraint sebelum insert nilai baru ke kolom bertipe enum-teks" harus jadi kebiasaan wajib sebelum nulis endpoint baru manapun -- sudah 2x kena kasus ini di sesi yang sama (action_subtype, trigger_type).
 
 **Next step -- Langkah 3:** Endpoint confirm dari submitter & receiver (submitter/receiver menyetujui resolution_notes yang ditulis mediator). Setelah itu Langkah 4: force-resolve (severity NORMAL) dan eskalasi ke owner (severity SERIOUS) untuk kasus di mana salah satu pihak tidak mau konfirmasi.
+
+## 92. Endpoint confirm submitter/receiver (POST /v1/discrepancy-cases/:id/confirm) -- SELESAI & TERUJI
+
+**Rasa yang dipenuhi:** Rasa Keamanan (kesepakatan bersama ditandai eksplisit lewat resolved_with_mandate: false, beda dari force-resolve nanti) dan Rasa Ketelitian (cek CHECK constraint dulu sebelum insert nilai baru, testing end-to-end dengan 2 role berbeda sebelum dianggap selesai).
+
+**Keputusan desain yang disepakati:**
+- Confirm cuma bisa dilakukan submitter atau receiver (bukan mediator, bukan staff lain) -- sistem otomatis deteksi role dari staffId yang login, tidak perlu staff pilih sendiri.
+- Confirm ditolak (409) kalau resolution_notes masih kosong -- tidak masuk akal menyetujui sesuatu yang belum ditulis.
+- Kasus otomatis jadi RESOLVED begitu KEDUA pihak (submitter DAN receiver) sudah confirm. Kalau baru satu pihak, status tetap IN_DISCUSSION.
+- Confirm dari kesepakatan bersama ditandai resolved_with_mandate: false -- ini pembeda penting dari force-resolve (Langkah 3) yang akan ditandai true, karena beda sifatnya (konsensus vs keputusan sepihak mediator/owner).
+- Kalau sudah confirm sebelumnya, endpoint menolak confirm ulang (409) -- confirm bukan tombol yang bisa dipencet berkali-kali.
+- Mediator TIDAK otomatis ikut menentukan RESOLVED lewat endpoint ini -- perannya cuma menulis resolution_notes (Langkah 1). Endpoint confirm murni domain submitter/receiver.
+
+**Migration database yang dijalankan (2x, via Supabase MCP apply_migration):**
+1. add_party_action_message_type -- menambah 'party_action' ke CHECK constraint message_type, dan 'confirmed_resolution' ke CHECK constraint action_subtype di discrepancy_thread_messages. Label 'party_action' dipakai khusus untuk aksi resmi dari submitter/receiver, sejajar konsep dengan 'mediator_action' yang khusus mediator.
+2. add_confirm_and_resolved_trigger_types -- menambah 'discrepancy_confirmed' (notif ke pihak satunya saat baru 1 yang confirm) dan 'discrepancy_resolved' (notif ke submitter+receiver+mediator saat kasus resmi RESOLVED) ke CHECK constraint trigger_type di notifications.
+
+**Kode:** disisipkan via python3 heredoc, persis setelah endpoint resolution (baris ~1183) dan sebelum GET /v1/notifications. Endpoint final ada di baris 1185-1319.
+
+**Testing (pakai kasus demo d2d01352-339c-479a-a409-0fe7d10af16d, submitter Staff Jahit Demo, receiver Staff QC Demo):**
+1. Submitter confirm duluan -> 201, action_subtype confirmed_resolution, resolved: false (karena receiver belum). LULUS.
+2. Receiver confirm setelahnya -> 201, resolved: true. LULUS.
+3. Verifikasi DB: status RESOLVED, submitter_confirmed_at & receiver_confirmed_at terisi, resolved_at terisi, resolved_with_mandate: false. LULUS.
+4. Confirm ulang setelah kasus RESOLVED -> ditolak 409 "Kasus ini udah kelar (RESOLVED), gak perlu konfirmasi lagi." LULUS.
+- Catatan: tes "staff tidak terlibat mencoba confirm" tidak dijalankan terpisah di sesi ini karena kasus demo sudah RESOLVED duluan (akan ke-block oleh pengecekan status, bukan pengecekan role, jadi hasilnya tidak murni). Pola kodenya identik dengan pengecekan otorisasi di endpoint resolution yang sudah teruji lulus sebelumnya, risiko dianggap rendah.
+
+**Catatan teknis buat sesi berikutnya:**
+- Ditemukan log error dari worker.js (Gap monitor / checkGaps) berupa "Query read timeout" dan "checkGaps() masih berjalan dari tick sebelumnya, skip tick ini." -- ini di luar scope endpoint discrepancy, kemungkinan sudah ada sebelum sesi ini. BELUM DIINVESTIGASI. Perlu dicek terpisah kapan-kapan supaya tidak numpuk jadi utang teknis.
+- Variable shell $MY_API_KEY hilang kalau sesi terminal Termux/SSH terputus dan tersambung ulang -- wajib export ulang tiap sesi baru sebelum testing curl.
+
+**Next step -- Langkah 4 (dari checkpoint 91, sekarang jadi Langkah 3 aktual berikutnya):** Endpoint force-resolve untuk severity NORMAL (mediator memutus sepihak kalau salah satu pihak tidak mau confirm, ditandai resolved_with_mandate: true). Setelah itu: endpoint eskalasi ke owner untuk severity SERIOUS.
