@@ -429,3 +429,32 @@ Poin penting: owner bisa jadi punya BEBERAPA bisnis sekaligus (contoh yang diseb
 **Implikasi untuk next steps:** ketika sesi mulai mengerjakan Modul B (PPIC) -- baik struktur maupun logic penuh, sesuai prinsip Bagian 95 -- WAJIB mulai dari investigasi checkGaps() di worker.js dulu, bukan membangun dari nol tanpa cek yang sudah ada. Ini menyatukan 2 item next steps yang sebelumnya tercatat terpisah (bug checkGaps yang tertunda + rencana Modul B) menjadi 1 alur kerja yang sama.
 
 **Status: PENJELASAN/KLARIFIKASI, belum ada kode diubah.**
+
+## 97. Visi produk jangka panjang + target v1 konkret (disepakati 14/15 Agustus 2026)
+
+**VISI PRODUK JANGKA PANJANG (penegasan lebih tajam dari Rasa Grosir, Bagian 88):** platform ini dicita-citakan jadi seperti "toko grosir" -- begitu calon klien datang, mereka lihat menu modul yang sudah siap pakai (Bagian 88: A-J), tinggal pilih mana yang relevan buat bisnis mereka. Ini investasi jangka panjang, bukan produk yang buru-buru dijual sebelum kuat.
+
+**KLARIFIKASI PENTING (supaya "selesai semua" tidak jadi target tanpa ujung):** ada 2 makna beda yang harus dipisah:
+- "Selesai semua IDE yang pernah kepikiran" (Finance, HRD, laporan owner, WA, dst) -- TIDAK REALISTIS jadi syarat mulai jual, karena ide terus bertambah tiap sesi (sudah terbukti malam ini sendiri, nambah beberapa bagian baru).
+- "Selesai v1 yang solid untuk 1 target nyata" -- INI YANG REALISTIS dan jadi tolok ukur "selesai" yang sebenarnya dipakai.
+
+**TARGET v1 YANG DISEPAKATI:** 1 brand owner yang punya konveksi sendiri (dia sekaligus pemilik DAN pegang operasional -- BEDA dari skenario "owner di balik layar dipegang direktur" di Bagian 94, itu untuk kasus lain/nanti).
+
+**Scope v1 untuk target ini (ringkas ulang dari diskusi sesi ini):**
+- Sudah ada & siap: alur produksi lengkap (cutting-jahit-QC-finishing-gudang-kirim), staff login PIN role-based, upload foto bukti, real-time update, discrepancy handling lengkap (4 endpoint, Checkpoint 91-93).
+- Masih kurang untuk v1 bisa dipakai beneran: FRONTEND (belum ada kode UI sama sekali -- ini kerjaan terbesar yang belum disentuh, kemungkinan makan waktu setara atau lebih lama dari sisa backend), HTTPS/SSL (wajib sebelum staff login pakai internet publik), endpoint mediator backup/resign yang sudah lama tertunda di next steps.
+- Ditunda dulu untuk v1 (bukan prioritas untuk 1 klien ini, tapi tetap dalam roadmap jangka panjang sesuai Bagian 95): Modul Finance, HRD, laporan/rekapan owner detail (Bagian 94), WA integration, Modul B/PPIC dashboard canggih -- klien sekecil ini kemungkinan masih bisa pegang manual dulu.
+
+**KEPUTUSAN PLATFORM: web app RESPONSIVE (bukan native app terpisah per OS).** Alasan: staff produksi pakai HP/tablet di lantai produksi, owner/admin mungkin pakai laptop -- 1 kode yang otomatis menyesuaikan tampilan ke semua device, tanpa perlu instalasi atau proses App Store/Play Store yang lebih lama & mahal untuk v1. Native app bisa jadi langkah lanjutan kalau nanti kebutuhannya lebih spesifik (push notification kuat, kerja offline).
+
+**Cara pandang progres ke depan (supaya tidak terasa seperti mengejar target tanpa ujung):**
+- v1 = 1-2 modul solid & teruji (produksi + discrepancy, sudah di jalur ini) -- dipakai untuk validasi nyata ke 1 brand owner konveksi ini.
+- v2, v3, dst = modul-modul lain menyusul satu-satu (sesuai Peta Bagian 88 + prinsip Rasa Grosir Bagian 95) -- tiap modul baru yang selesai menambah 1 "pilihan di rak toko grosir" untuk ditawarkan ke klien berikutnya.
+- Klien pertama bisa mulai pakai versi yang ada sekarang sambil modul lain terus dikerjakan di belakang layar untuk klien-klien berikutnya -- bukan menunggu semuanya selesai dulu baru boleh dipakai siapapun.
+
+**Status: VISI & TARGET DISEPAKATI. Next step paling dekat berdasarkan diskusi sesi ini (belum dimulai, urutan prioritas menurut rekomendasi Claude yang disetujui arahnya oleh Teja):**
+1. Investigasi bug checkGaps() di worker.js (Bagian 96) -- murah dicek, sudah aktif error, terhubung ke Modul B.
+2. Mulai frontend web responsive -- kerjaan terbesar yang belum tersentuh, prioritas tinggi karena tanpa ini v1 belum bisa benar-benar dipakai brand owner target.
+3. HTTPS/SSL -- wajib sebelum expose ke publik/domain live, sudah lama di next steps (Bagian 5 lama).
+4. Endpoint mediator backup/resign yang tertunda.
+Urutan pasti #2-4 masih fleksibel, perlu dikonfirmasi ulang Teja di sesi mendatang.
