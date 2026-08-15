@@ -609,3 +609,15 @@ Urutan pasti #2-4 masih fleksibel, perlu dikonfirmasi ulang Teja di sesi mendata
 **Pelajaran untuk semua room/sesi ke depan:** sebelum `git commit`, kalau jumlah insertions/deletions terasa JANGGAL (jauh lebih besar dari perkiraan perubahan sesi ini), WAJIB cek dulu pakai `git diff HEAD -- <file>` atau `git status` SEBELUM commit -- jangan asumsikan angka besar berarti error, tapi juga jangan diabaikan begitu saja. Bisa jadi temuan penting seperti ini (kode lama yang ketinggalan commit), bukan cuma bug.
 
 **Status: SUDAH DIPERBAIKI, dicatat sebagai pembelajaran proses permanen.**
+
+## 104. Keputusan desain: layar Lapor Hasil (submit stage) -- istilah + alur konfirmasi (15 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Copywriting (istilah natural, bukan terjemahan kaku dari Inggris) dan Rasa Customer Service (tidak membebani staff dengan gesekan berulang yang tidak perlu).
+
+**Konteks:** bagian dari proses wajib Bagian 101 (kumpulkan data asli + cek ide lama + diskusi sebelum ke Stitch) untuk layar submit-stage. Sebelum diputuskan, dicek dulu ke CHECKPOINT.md dan kedua archive dengan grep -- tidak ditemukan keputusan istilah/alur PIN sebelumnya untuk layar ini (beda dari alur foto-dulu-baru-qty yang SUDAH ditentukan otomatis oleh backend Bagian 102).
+
+**Keputusan yang disepakati:**
+- Istilah di UI: **"Lapor Hasil"** (bukan "Setor Hasil Kerja" -- dihindari karena "setor" berkonotasi uang/upah, berpotensi tabrakan makna dengan sistem upah yang masih ide/Bagian 49; bukan juga "Submit Pekerjaan" -- terlalu formal/kaku untuk staff lantai produksi). Dicek via grep ke checkpoint & archive, istilah ini belum pernah dipakai untuk maksud lain -- aman dipakai.
+- Konfirmasi PIN ulang sebelum submit final: TIDAK PERLU. Staff sudah login via PIN di awal sesi (token 8 jam) -- meminta PIN lagi tiap submit adalah gesekan berulang yang tidak perlu, terutama untuk staff piece-rate yang submit berkali-kali sehari. Resiko "salah pencet" sudah cukup teredam oleh lapisan lain yang sudah ada: staff hanya bisa submit ke assigned_stage miliknya sendiri, foto bukti wajib (butuh effort, bukan sekadar 1 tap), dan qty yang salah akan tertangkap di titik confirm oleh stage berikutnya sebelum jadi masalah besar.
+
+**Status: KEPUTUSAN DESAIN DISEPAKATI.** Next: susun prompt Stitch untuk layar Lapor Hasil, mengikuti alur wajib foto-dulu-baru-qty (Bagian 102) + istilah dan keputusan PIN di atas.
