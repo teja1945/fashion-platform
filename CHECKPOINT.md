@@ -530,3 +530,16 @@ Urutan pasti #2-4 masih fleksibel, perlu dikonfirmasi ulang Teja di sesi mendata
 **STATUS: HTTPS/SSL api.benangrasa.com SELESAI & TERUJI.** Item ini resmi keluar dari next steps aktif (Bagian 5) dan target v1 (Bagian 97, poin 3).
 
 **Next step tersisa dari Bagian 97 (urutan v1):** frontend web responsive (belum tersentuh sama sekali) dan endpoint mediator backup/resign yang tertunda.
+
+## 100. Keputusan desain: alur login staff -- HP pribadi + fallback (15 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Ketelitian (dicek dulu ke kedua file archive + CHECKPOINT.md sebelum disimpulkan belum pernah dicatat -- bukan asumsi langsung) dan Rasa Customer Service (fallback disediakan dari awal untuk staff yang tidak punya HP, bukan blocker yang bikin staff itu tidak bisa kerja).
+
+**Konteks:** saat mulai desain layar login untuk frontend (dimulai dari Stitch, sesuai alur Bagian 89), muncul pertanyaan apakah device staff itu personal (1 HP = 1 identitas staff) atau shared (device kantor gantian dipakai). Sempat dicari ke CHECKPOINT_ARCHIVE.md, CHECKPOINT_ARCHIVE_2.md, dan CHECKPOINT.md sendiri dengan berbagai kata kunci -- TIDAK DITEMUKAN keputusan eksplisit sebelumnya soal ini. Kemungkinan pernah terpikir/terdiskusikan tapi belum sempat tercatat resmi.
+
+**Keputusan yang disepakati:**
+- Default: staff pakai HP pribadi masing-masing untuk login.
+- Fallback: kalau staff tidak punya HP (rusak/ketinggalan/dll), boleh pakai HP milik pabrik (device bersama) ATAU numpang HP staff lain.
+- Implikasi desain: login TIDAK BISA murni device-bound (asumsi "1 device = 1 identitas tetap"), karena ada skenario device dipakai gantian orang. Tetap butuh cara pilih "siapa yang login", tapi bisa dibuat pintar: kalau device itu sudah "dikenal" (biasa dipakai staff tertentu), langsung tawarkan PIN untuk staff itu duluan tanpa perlu cari nama dulu. Kalau device asing/baru (HP pabrik atau numpang), baru muncul pilihan cari/pilih nama staff.
+
+**Status: KEPUTUSAN DESAIN DISEPAKATI. Belum ada implementasi kode/UI apapun -- next step langsung: lanjut ke Stitch untuk eksplorasi visual layar login yang sudah menyesuaikan keputusan ini (2 mode: device dikenal vs device asing).**
