@@ -1721,26 +1721,10 @@ const wss = new WebSocketServer({
         return;
       }
       info.req.tenantId = rows[0].id;
-
-      // Ambil token staff dari query param (?token=...), sama seperti x-staff-token di REST.
-      // Dibutuhkan supaya WS tau ini staff siapa, buat filter broadcast per-kasus discrepancy.
-      const url = new URL(info.req.url, "http://internal");
-      const token = url.searchParams.get("token");
-      if (!token) {
-        callback(false, 401, "Token staff wajib disertakan (?token=...)");
-        return;
-      }
-      const session = sessionMap.get(token);
-      if (!session || session.expiresAt < Date.now()) {
-        callback(false, 401, "Sesi kadaluarsa, login ulang");
-        return;
-      }
-      if (session.tenantId !== rows[0].id) {
-        callback(false, 403, "Sesi ini bukan untuk tenant ini");
-        return;
-      }
-      info.req.staffId = session.staffId;
-      info.req.role = session.role;
+      // Identitas staff (token) SENGAJA TIDAK dicek di sini (P1-3, CHECKPOINT
+      // Bagian 114) -- token tidak boleh lewat query string URL karena
+      // berisiko kerekam di access log. Verifikasi staff dipindah ke pesan
+      // pertama setelah koneksi terbuka, lihat wss.on("connection", ...).
       callback(true);
     } catch (err) {
       console.error("WS tenant validation error:", err.message);
@@ -1749,11 +1733,31 @@ const wss = new WebSocketServer({
   },
 });
 
+// P1-3: token staff tidak lagi lewat query string (?token=...) saat handshake.
+// Alur baru: koneksi dibuka dulu tanpa identitas staff, client WAJIB kirim
+// pesan pertama {type: "auth", token: "..."} dalam WS_AUTH_TIMEOUT_MS,
+// baru boleh kirim pesan lain. Selama koneksi hidup, sesi dicek ulang tiap
+// WS_SESSION_RECHECK_MS supaya Revoke/Offboard (endpoint REST yang sudah
+// ada) ikut efektif memutus koneksi live, bukan cuma REST call baru.
+const WS_AUTH_TIMEOUT_MS = 5000;
+const WS_SESSION_RECHECK_MS = 30000;
+
 wss.on("connection", (ws, req) => {
   ws.tenantId = req.tenantId;
-  ws.staffId = req.staffId;
-  ws.role = req.role;
+  ws.staffId = null;
+  ws.role = null;
+  ws.authToken = null;
+  ws.authenticated = false;
   ws.typingCaseId = null; // kasus mana yang lagi diketik staff ini, kalau ada
+
+  let recheckInterval = null;
+
+  const authTimeout = setTimeout(() => {
+    if (!ws.authenticated) {
+      console.log(`WS: koneksi ditutup, tidak auth dalam ${WS_AUTH_TIMEOUT_MS}ms (tenant ${ws.tenantId})`);
+      ws.close(4001, "auth timeout");
+    }
+  }, WS_AUTH_TIMEOUT_MS);
 
   ws.on("message", async (raw) => {
     let data;
@@ -1762,12 +1766,51 @@ wss.on("connection", (ws, req) => {
     } catch {
       return; // abaikan pesan yang bukan JSON valid
     }
+
+    if (!ws.authenticated) {
+      if (data.type !== "auth" || !data.token) {
+        return; // pesan pertama wajib auth, abaikan pesan lain sebelum itu
+      }
+      const session = sessionMap.get(data.token);
+      if (!session || session.expiresAt < Date.now()) {
+        console.log(`WS: auth gagal (sesi tidak ditemukan/kadaluarsa), tenant ${ws.tenantId}`);
+        ws.close(4001, "auth gagal");
+        return;
+      }
+      if (session.tenantId !== ws.tenantId) {
+        console.log(`WS: auth gagal (sesi bukan untuk tenant ini), tenant ${ws.tenantId}`);
+        ws.close(4001, "auth gagal");
+        return;
+      }
+      // Refresh TTL, konsisten dengan pola requireStaffSession di REST.
+      session.expiresAt = Date.now() + SESSION_TTL_MS;
+      ws.staffId = session.staffId;
+      ws.role = session.role;
+      ws.authToken = data.token;
+      ws.authenticated = true;
+      clearTimeout(authTimeout);
+
+      recheckInterval = setInterval(() => {
+        const s = sessionMap.get(ws.authToken);
+        if (!s || s.expiresAt < Date.now()) {
+          console.log(`WS: koneksi ditutup, sesi dicabut/kadaluarsa di tengah jalan (staff ${ws.staffId}, tenant ${ws.tenantId})`);
+          ws.close(4003, "sesi dicabut");
+        }
+      }, WS_SESSION_RECHECK_MS);
+
+      ws.send(JSON.stringify({ type: "auth_ok" }));
+      return;
+    }
+
     if (data.type === "typing_start" || data.type === "typing_stop") {
       await handleTypingSignal(ws, data.type, data.discrepancy_case_id);
     }
   });
 
   ws.on("close", () => {
+    clearTimeout(authTimeout);
+    if (recheckInterval) clearInterval(recheckInterval);
+
     // Jaring pengaman: kalau staff lagi "mengetik" terus koneksinya putus
     // (nutup app dsb), otomatis kirim typing_stop biar gak nyangkut selamanya.
     if (ws.typingCaseId) {
