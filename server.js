@@ -414,11 +414,43 @@ app.post("/v1/lock/acquire", tenantResolver, requireApiKey, requireStaffSession,
         };
       }
 
-      const inserted = await c.query(
-        `INSERT INTO job_locks (tenant_id, production_job_id, locked_by_staff_id)
-         VALUES ($1, $2, $3) RETURNING *`,
-        [req.tenantId, production_job_id, staffId]
-      );
+      let inserted;
+      try {
+        await c.query("SAVEPOINT before_lock_insert");
+        inserted = await c.query(
+          `INSERT INTO job_locks (tenant_id, production_job_id, locked_by_staff_id)
+           VALUES ($1, $2, $3) RETURNING *`,
+          [req.tenantId, production_job_id, staffId]
+        );
+        await c.query("RELEASE SAVEPOINT before_lock_insert");
+      } catch (lockErr) {
+        if (lockErr.code === "23505") {
+          // Race condition: staff lain berhasil INSERT duluan di antara SELECT
+          // activeLock di atas dan INSERT ini (celah P0-BARU-2, CHECKPOINT
+          // Bagian 119/120). Partial unique index job_locks yang menangkap ini,
+          // bukan lagi mengandalkan SELECT check-then-act semata.
+          // SAVEPOINT wajib di-ROLLBACK dulu sebelum query lain -- begitu 1
+          // statement gagal di postgres, transaksi berstatus aborted (25P02)
+          // dan menolak semua query berikutnya sampai di-rollback (ke savepoint
+          // ini, bukan seluruh transaksi -- withTenant() tetap lanjut normal).
+          await c.query("ROLLBACK TO SAVEPOINT before_lock_insert");
+          const raceLock = await c.query(
+            `SELECT jl.locked_by_staff_id, s.full_name, jl.locked_at
+             FROM job_locks jl JOIN staff s ON s.id = jl.locked_by_staff_id
+             WHERE jl.production_job_id = $1 AND jl.released_at IS NULL`,
+            [production_job_id]
+          );
+          return {
+            httpStatus: 409,
+            body: {
+              error: "job sedang dikerjakan orang lain",
+              locked_by: raceLock.rows[0]?.full_name,
+              locked_at: raceLock.rows[0]?.locked_at,
+            },
+          };
+        }
+        throw lockErr;
+      }
 
       await c.query(
         `INSERT INTO work_log (tenant_id, production_job_id, staff_id, stage, action)
