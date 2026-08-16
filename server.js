@@ -803,6 +803,10 @@ app.post("/v1/photos", tenantResolver, requireApiKey, requireStaffSession, async
   if (!production_job_id || !stage || !photo_base64) {
     return res.status(400).json({ error: "production_job_id, stage, dan photo_base64 wajib diisi" });
   }
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_REGEX.test(production_job_id)) {
+    return res.status(400).json({ error: "production_job_id harus berupa UUID yang valid" });
+  }
 
   let buffer;
   try {
