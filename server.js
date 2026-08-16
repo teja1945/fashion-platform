@@ -12,8 +12,27 @@ const { startGapMonitor /*, startBundleSplitReconciler */ } = require("./worker"
 const tenantResolver = require("./middleware/tenantResolver");
 const { extractSubdomain } = require("./middleware/tenantResolver");
 
+const rateLimit = require("express-rate-limit");
+
 const app = express();
 app.use(express.json({ limit: "10mb" }));
+
+// Rate limiter API level umum (checklist keamanan bagian 6, CodeQL alert
+// js/missing-rate-limiting -- 23 lokasi, satu akar masalah yang sama:
+// tidak ada batas global sebelumnya). Endpoint login PIN sudah punya
+// proteksi brute-force terpisah (rateLimitMap, lebih ketat) -- ini lapis
+// tambahan yang berlaku ke SEMUA /v1/*, termasuk endpoint yang sebelumnya
+// tidak dilindungi apapun.
+const apiRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 menit
+  max: 300, // 300 request/menit per IP -- longgar untuk staff pabrik yang
+            // submit berkali-kali cepat (piece-rate), tapi tetap membatasi
+            // spam/bot ekstrem
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "terlalu banyak permintaan, coba lagi sebentar lagi" },
+});
+app.use("/v1", apiRateLimiter);
 
 app.get("/scanner.html", (_req, res) => res.sendFile(path.join(__dirname, "scanner.html")));
 app.use("/assets", express.static(path.join(__dirname, "assets")));
