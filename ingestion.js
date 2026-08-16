@@ -220,4 +220,4 @@ async function ingestEvent(body) {
   }
 }
 
-module.exports = { ingestEvent, KNOWN_EVENT_TYPES };
+module.exports = { ingestEvent, KNOWN_EVENT_TYPES, resolveStageTransition };

@@ -6,7 +6,8 @@ const path = require("path");
 const crypto = require("crypto");
 
 const { pool, withTenant, withTenantAndStaff } = require("./db");
-const { ingestEvent } = require("./ingestion");
+const { ingestEvent, resolveStageTransition } = require("./ingestion");
+const { assignVersionAndStoreInTx } = require("./versioning");
 const { startGapMonitor /*, startBundleSplitReconciler */ } = require("./worker");
 const tenantResolver = require("./middleware/tenantResolver");
 const { extractSubdomain } = require("./middleware/tenantResolver");
@@ -600,7 +601,6 @@ app.post("/v1/stage-submissions/:id/confirm", tenantResolver, requireApiKey, req
   }
 
   const client = await pool.connect();
-  let orderId, eventPayload;
   try {
     const result = await withTenantAndStaff(client, req.tenantId, staffId, async (c) => {
       const staffCheck = await c.query(
@@ -613,7 +613,8 @@ app.post("/v1/stage-submissions/:id/confirm", tenantResolver, requireApiKey, req
 
       const subRes = await c.query(
         `SELECT id, production_job_id, stage_key, qty_submitted, status, submitted_by_staff_id
-         FROM stage_quantity_submissions WHERE id = $1`,
+         FROM stage_quantity_submissions WHERE id = $1
+         FOR UPDATE`,
         [id]
       );
       if (subRes.rows.length === 0) {
@@ -731,16 +732,42 @@ app.post("/v1/stage-submissions/:id/confirm", tenantResolver, requireApiKey, req
         }
       }
 
-      const jobRes = await c.query(`SELECT order_id FROM production_jobs WHERE id = $1`, [sub.production_job_id]);
+      const jobRes = await c.query(
+        `SELECT order_id, current_stage, pipeline_snapshot FROM production_jobs WHERE id = $1 FOR UPDATE`,
+        [sub.production_job_id]
+      );
       if (jobRes.rows.length === 0) {
         return { httpStatus: 404, body: { error: "production_job tidak ditemukan" } };
       }
+
+      // Maju-kan stage produksi DI DALAM transaksi yang sama (atomic dengan
+      // update submission/discrepancy di atas) -- kalau bagian ini gagal,
+      // SEMUANYA rollback bersama, tidak ada "submission CONFIRMED tapi
+      // stage tidak maju" (perbaikan P0-3, audit ChatGPT bagian 105).
+      const resolution = resolveStageTransition(
+        jobRes.rows[0].pipeline_snapshot,
+        jobRes.rows[0].current_stage,
+        "STAGE_COMPLETED",
+        {}
+      );
+      if (resolution.error) {
+        return { httpStatus: 400, body: { error: `submission tercatat, tapi stage gagal maju: ${resolution.error}` } };
+      }
+
+      const eventResult = await assignVersionAndStoreInTx(c, {
+        tenantId: req.tenantId,
+        productionJobId: sub.production_job_id,
+        eventType: "order.stage_changed",
+        eventVersion: 1,
+        payload: { qty_confirmed: qtyConf, submission_id: id, discrepancy: newStatus === "DISCREPANCY", to_stage: resolution.stage },
+      });
 
       return {
         httpStatus: 200,
         body: {
           id, status: newStatus, qty_submitted: sub.qty_submitted, qty_confirmed: qtyConf,
           discrepancy_case_id: discrepancyCaseId,
+          stage_event: { sequence_version: eventResult.sequenceVersion, applied: eventResult.applied, to_stage: resolution.stage },
         },
         _orderId: jobRes.rows[0].order_id,
         _stageKey: sub.stage_key,
@@ -769,19 +796,10 @@ app.post("/v1/stage-submissions/:id/confirm", tenantResolver, requireApiKey, req
       );
     }
 
-    const eventResult = await ingestEvent({
-      tenant_id: req.tenantId,
-      order_id: orderId,
-      event_type: "STAGE_COMPLETED",
-      payload: { qty_confirmed: qtyConf, submission_id: id, discrepancy: result._newStatus === "DISCREPANCY" },
-      source: "qc_confirm",
-    });
-
-    if (eventResult.httpStatus >= 400) {
-      console.error("stage-submissions confirm: stage gagal maju setelah QC confirm", eventResult.body);
-      return res.status(200).json({ ...result.body, stage_advance_warning: eventResult.body });
-    }
-
+    // Stage sudah dimajukan atomic DI DALAM transaksi di atas (bersama
+    // update submission/discrepancy) -- tidak ada lagi panggilan ingestEvent
+    // terpisah di sini, dan tidak ada lagi kemungkinan "submission CONFIRMED
+    // tapi stage gagal maju diam-diam" (P0-3, audit ChatGPT bagian 105).
     res.status(200).json(result.body);
   } catch (err) {
     console.error("stage-submissions confirm error:", err);

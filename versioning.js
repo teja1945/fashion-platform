@@ -105,69 +105,82 @@ async function createProductionJob({ tenantId, orderId, pipelineSnapshot, payloa
  * @param {object} params
  *   tenantId, productionJobId, eventType, eventVersion, payload, requestId
  */
+// Versi inti: TIDAK membuka koneksi/transaksi sendiri -- menerima client (c)
+// yang transaksinya SUDAH BERJALAN (sudah BEGIN, session context sudah di-SET
+// oleh withTenant/withTenantAndStaff milik caller). Dipakai supaya event bisa
+// atomic dalam 1 transaksi yang sama dengan perubahan lain (misal update
+// stage_quantity_submissions di endpoint confirm) -- kalau salah satu gagal,
+// keduanya ROLLBACK bersama, tidak ada "setengah jalan" (Rasa Keamanan).
+async function assignVersionAndStoreInTx(c, { tenantId, productionJobId, eventType, eventVersion, payload, requestId }) {
+  if (requestId) {
+    const dedupRes = await c.query(
+      `INSERT INTO request_dedup (tenant_id, request_id) VALUES ($1, $2)
+       ON CONFLICT (tenant_id, request_id) DO NOTHING
+       RETURNING id`,
+      [tenantId, requestId]
+    );
+    if (dedupRes.rowCount === 0) {
+      return { duplicate: true };
+    }
+  }
+
+  const lockRes = await c.query(
+    `SELECT next_sequence_version FROM production_jobs WHERE id = $1 FOR UPDATE`,
+    [productionJobId]
+  );
+  if (lockRes.rowCount === 0) {
+    throw new Error(`production_job ${productionJobId} tidak ditemukan`);
+  }
+  const sequenceVersion = parseInt(lockRes.rows[0].next_sequence_version, 10) + 1;
+
+  const eventRes = await c.query(
+    `INSERT INTO production_events
+       (tenant_id, production_job_id, event_type, event_version, payload, sequence_version)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+     RETURNING id`,
+    [tenantId, productionJobId, eventType, eventVersion || 1, JSON.stringify(payload || {}), sequenceVersion]
+  );
+  const eventId = eventRes.rows[0].id;
+
+  await c.query(
+    `UPDATE production_jobs SET next_sequence_version = $1 WHERE id = $2`,
+    [sequenceVersion, productionJobId]
+  );
+
+  if (requestId) {
+    await c.query(
+      `UPDATE request_dedup SET event_id = $1 WHERE tenant_id = $2 AND request_id = $3`,
+      [eventId, tenantId, requestId]
+    );
+  }
+
+  const applyResult = await tryApplyToState(c, {
+    id: eventId,
+    tenant_id: tenantId,
+    production_job_id: productionJobId,
+    event_type: eventType,
+    event_version: eventVersion || 1,
+    payload,
+    sequence_version: sequenceVersion,
+  });
+
+  return { eventId, sequenceVersion, applied: applyResult.applied };
+}
+
+// Wrapper lama: buka koneksi + transaksi SENDIRI, lalu panggil versi inti di
+// atas. Tetap dipakai endpoint/jalur yang belum butuh atomic dengan operasi
+// lain (misal ingestion.js untuk event generik dari luar).
 async function assignVersionAndStore({ tenantId, productionJobId, eventType, eventVersion, payload, requestId }) {
   const client = await pool.connect();
   client.on("error", (err) => console.error("assignVersionAndStore client error:", err.message));
 
   try {
-    return await withTenant(client, tenantId, async (c) => {
-      if (requestId) {
-        const dedupRes = await c.query(
-          `INSERT INTO request_dedup (tenant_id, request_id) VALUES ($1, $2)
-           ON CONFLICT (tenant_id, request_id) DO NOTHING
-           RETURNING id`,
-          [tenantId, requestId]
-        );
-        if (dedupRes.rowCount === 0) {
-          return { duplicate: true };
-        }
-      }
-
-      const lockRes = await c.query(
-        `SELECT next_sequence_version FROM production_jobs WHERE id = $1 FOR UPDATE`,
-        [productionJobId]
-      );
-      if (lockRes.rowCount === 0) {
-        throw new Error(`production_job ${productionJobId} tidak ditemukan`);
-      }
-      const sequenceVersion = parseInt(lockRes.rows[0].next_sequence_version, 10) + 1;
-
-      const eventRes = await c.query(
-        `INSERT INTO production_events
-           (tenant_id, production_job_id, event_type, event_version, payload, sequence_version)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6)
-         RETURNING id`,
-        [tenantId, productionJobId, eventType, eventVersion || 1, JSON.stringify(payload || {}), sequenceVersion]
-      );
-      const eventId = eventRes.rows[0].id;
-
-      await c.query(
-        `UPDATE production_jobs SET next_sequence_version = $1 WHERE id = $2`,
-        [sequenceVersion, productionJobId]
-      );
-
-      if (requestId) {
-        await c.query(
-          `UPDATE request_dedup SET event_id = $1 WHERE tenant_id = $2 AND request_id = $3`,
-          [eventId, tenantId, requestId]
-        );
-      }
-
-      const applyResult = await tryApplyToState(c, {
-        id: eventId,
-        tenant_id: tenantId,
-        production_job_id: productionJobId,
-        event_type: eventType,
-        event_version: eventVersion || 1,
-        payload,
-        sequence_version: sequenceVersion,
-      });
-
-      return { eventId, sequenceVersion, applied: applyResult.applied };
-    });
+    return await withTenant(client, tenantId, (c) =>
+      assignVersionAndStoreInTx(c, { tenantId, productionJobId, eventType, eventVersion, payload, requestId })
+    );
   } finally {
     client.release();
   }
 }
 
-module.exports = { createProductionJob, assignVersionAndStore };
+module.exports = { createProductionJob, assignVersionAndStore, assignVersionAndStoreInTx };
