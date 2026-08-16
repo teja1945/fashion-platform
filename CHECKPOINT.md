@@ -627,3 +627,90 @@ helper script test yang lewat jalur resmi dari awal.
 [ ] CORS (Bagian 118, desain sudah disepakati, belum dieksekusi)
 [ ] P1-1 session ke Redis, PIN progressive lockout, test suite CI gate
 [ ] #16/#17 Bagian 119 (audit trail admin, monitoring) -- belum diverifikasi kodenya
+
+## 121. P0-BARU-2: job_locks race condition -- SEBAGIAN SELESAI, SERAH-TERIMA KE SESI BERIKUTNYA (17 Agustus 2026)
+
+**Status: LAPIS DATABASE SELESAI & TERUJI. LAPIS APLIKASI KODE SUDAH DITULIS
+TAPI BELUM DITEST ULANG SETELAH FIX TERAKHIR. Room berikutnya WAJIB baca
+bagian ini dulu sebelum lanjut, jangan mulai dari nol.**
+
+**Lapis 1 -- Database (SELESAI & TERUJI):**
+Partial unique index ditambah via migration `add_partial_unique_index_job_locks_active`
+(Supabase project kwhybffbcqopqbbnuigg):
+Diverifikasi langsung: 2 INSERT manual ke job yang sama (released_at NULL)
+di 1 transaksi -> INSERT kedua ditolak `23505 duplicate key`. LULUS. Ini
+menutup celah asli (unique constraint lama `(tenant_id, production_job_id,
+released_at)` TIDAK partial, jadi 2 row released_at=NULL dianggap "distinct"
+oleh Postgres -- tidak pernah benar-benar mencegah apa-apa).
+
+**Lapis 2 -- Aplikasi (kode sudah ditulis, BELUM ditest ulang):**
+server.js endpoint POST /v1/lock/acquire (skitar baris 417-446) diubah:
+INSERT job_locks dibungkus try/catch, kalau kena error code "23505" (race
+beneran kejadian, lolos dari SELECT activeLock check di atasnya karena
+window kecil antara SELECT dan INSERT), balas 409 "job sedang dikerjakan
+orang lain" -- sama seperti pesan normal, bukan 500.
+
+**Bug ditemukan & sudah diperbaiki saat testing pertama (percobaan 1
+GAGAL):** catch block pertama langsung coba SELECT raceLock tanpa
+ROLLBACK dulu -- di Postgres begitu 1 statement gagal dalam transaksi
+(INSERT kena 23505), transaksi itu langsung berstatus "aborted" (kode
+25P02), SEMUA query berikutnya di transaksi yang sama otomatis ditolak
+sampai ada ROLLBACK. Testing manual race (2 curl paralel, staff Jahit
+Demo vs Admin Demo, keduanya lolos SELECT activeLock lalu INSERT
+bersamaan) membuktikan ini nyata: race 1 dapat 500 "internal error"
+(bukan 409 yang diharapkan), log PM2 konfirmasi 25P02 dari SELECT
+raceLock yang gagal karena transaksi sudah aborted.
+
+**Fix (belum ditest ulang):** ditambah `SAVEPOINT before_lock_insert`
+sebelum INSERT, `RELEASE SAVEPOINT` kalau sukses, dan `ROLLBACK TO
+SAVEPOINT before_lock_insert` di awal catch block SEBELUM query
+raceLock -- supaya transaksi "unfreeze" ke titik aman sebelum lanjut
+query lain, tapi transaksi utama (withTenant BEGIN/COMMIT) tetap
+lanjut normal.
+
+**File di VPS sekarang:**
+- server.js -- SUDAH diedit dengan fix SAVEPOINT, syntax valid (node -c
+  lulus), TAPI BELUM di-commit ke git, BELUM di-restart ulang ke PM2
+  dengan kode fix ini (restart terakhir masih pakai kode SEBELUM
+  SAVEPOINT fix, itu yang dites dan gagal 500).
+- server.js.bak-p0baru2 -- backup SEBELUM percobaan pertama (tanpa
+  SAVEPOINT sama sekali)
+- server.js.bak-p0baru2-v2 -- backup SETELAH percobaan pertama (ada
+  catch block tapi belum ada SAVEPOINT, ini yang gagal 500 pas dites)
+  Kedua backup ini TIDAK ke-track git (pola *.bak* sudah di .gitignore,
+  dikonfirmasi lagi di sesi ini).
+
+**Lock nyangkut dari testing (PERLU DIBERESIN sebelum lanjut apapun):**
+Admin Demo (35afaab6-...) masih pegang active lock di job demo
+(25352257-4cff-4377-85d7-2a63b05146fe) dari percobaan race yang gagal.
+Cek dulu: `SELECT * FROM job_locks WHERE production_job_id=
+'25352257-4cff-4377-85d7-2a63b05146fe' AND released_at IS NULL` -- kalau
+ada row, release dulu (endpoint POST /v1/lock/release, atau manual UPDATE
+released_at=now() kalau endpointnya gagal) sebelum testing ulang, supaya
+tidak dikira lock aktif yang "sah".
+
+**NEXT STEP LANGSUNG (tinggal eksekusi, tidak perlu diskusi ulang):**
+[ ] Bersihkan lock nyangkut (lihat di atas)
+[ ] `pm2 restart fashion-platform` -- load kode SAVEPOINT fix
+[ ] Ulangi testing race: 2 curl paralel (Jahit Demo + Admin Demo) ke job
+    yang sama -- kali ini SATU harus dapat 200 ok:true, SATU LAGI harus
+    dapat 409 "job sedang dikerjakan orang lain" (BUKAN 500)
+[ ] Kalau LULUS: `node -c server.js`, diff review, git add + commit +
+    push, update CHECKPOINT.md (append Bagian 122, tandai P0-BARU-2
+    SELESAI & TERUJI, coret dari next steps)
+[ ] Kalau masih gagal: cek log PM2 error lagi, kemungkinan ada detail
+    lain yang belum ketangkap -- jangan asumsi SAVEPOINT otomatis benar
+    tanpa bukti test baru
+[ ] Hapus server.js.bak-p0baru2 dan server.js.bak-p0baru2-v2 setelah
+    fix final dikonfirmasi lulus dan sudah di-commit
+
+**Next steps lain yang belum berubah dari Bagian 120 (P0-BARU-2 di atas
+prioritas paling depan begitu sesi ini lanjut):**
+[ ] P0-6 lama: schema/migration reproducibility
+[ ] Perbaiki pesan error mediator (baris 263 lama server.js -- nomor
+    baris mungkin bergeser akibat perubahan Bagian 121, cek ulang) --
+    keputusan Teja: admin boleh (perbaiki pesan) atau owner-only
+    (perbaiki logic)?
+[ ] CORS (Bagian 118, desain sudah disepakati, belum dieksekusi)
+[ ] P1-1 session ke Redis, PIN progressive lockout, test suite CI gate
+[ ] #16/#17 Bagian 119 (audit trail admin, monitoring) -- belum diverifikasi kodenya
