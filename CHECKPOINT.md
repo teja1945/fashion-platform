@@ -1384,8 +1384,36 @@ ketahuan setelah `cat -A`. Diperbaiki dengan pendekatan berbasis nomor
 baris (verifikasi isi baris awal/akhir dulu sebelum override), bukan lagi
 cocokkan teks mentah.
 
-**Testing:** [ISI SETELAH TEST 1-4 DI ATAS DIJALANKAN DAN LULUS -- jangan
-biarkan bagian ini kosong, catat hasil aktual tiap skenario]
+**Testing (4 skenario, semua LULUS, dijalankan via wscat/node ws manual di VPS):**
+1. Connect tanpa kirim auth sama sekali, dibiarkan diam -> koneksi auto-close
+   dalam 5 detik, code 4001 reason "auth timeout". LULUS.
+2. Connect + kirim {"type":"auth","token":"token-ngasal-salah"} -> ditolak
+   langsung, close code 4001 reason "auth gagal". LULUS.
+3. Login staff QC Demo (dapat token asli) -> connect + kirim auth dengan
+   token itu -> server balas {"type":"auth_ok"}, koneksi tetap terbuka. LULUS.
+4. Sambil koneksi Test 3 masih terbuka (dijalankan via background node process
+   supaya tidak terputus gara-gara pindah sesi terminal), staff itu di-revoke
+   lewat POST /v1/staff/revoke (Admin Demo) -> re-check interval 30 detik
+   mendeteksi sesi sudah tidak ada di sessionMap, koneksi WS auto-close code
+   4003 reason "sesi dicabut" dalam <30 detik. LULUS -- bukti konkret bahwa
+   Revoke di REST benar-benar ikut memutus koneksi WS yang sudah authenticated,
+   bukan cuma asumsi dari baca kode.
+
+**Kendala teknis saat testing (dicatat untuk sesi berikutnya):** wscat tidak
+bisa dijalankan lewat pipe/background biasa (butuh mode interaktif, langsung
+exit kalau stdin bukan terminal) -- solusinya pakai `node -e` dengan library
+`ws` langsung, dijalankan via `nohup ... &` supaya proses tetap hidup di VPS
+lepas dari sesi terminal/HP yang dipakai untuk mengetik command lain secara
+bersamaan (dibutuhkan untuk Test 4, connect + revoke harus tumpang tindih).
+
+**Temuan tambahan saat Test 4 (tidak diduga sebelumnya): nginx proxy_read_timeout
+default 60 detik memutus paksa koneksi WS yang authenticated tapi idle (tidak
+ada pesan lewat) lebih dari 60 detik -- close code 1006, TERPISAH dari logic
+kode P1-3 manapun.** Ini bukan soal keamanan (tidak terkait revoke/kecurangan
+staff), murni soal pengalaman staff jujur yang diam sebentar (baca chat, mikir
+balasan) bisa kehilangan koneksi real-time tanpa sadar. Diperbaiki di sesi yang
+sama, lihat Bagian 116.
+
 
 **Status: P1-3 dari audit ChatGPT (Bagian 105) SELESAI & TERUJI.**
 13 dari 15 temuan sekarang sudah dibenerin total.
@@ -1399,3 +1427,30 @@ biarkan bagian ini kosong, catat hasil aktual tiap skenario]
 [ ] Daftar terbuka Bagian 109 (backup/DR, .env permission, dst)
 [ ] Investigasi DeprecationWarning client.query() yang masih tersisa
     (Bagian 92/98/114)
+
+## 116. Fix tambahan: WS ping/pong heartbeat cegah nginx proxy_read_timeout motong koneksi idle -- SELESAI & TERUJI (16 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Customer Service (staff jujur yang sekadar diam sebentar -- baca chat, mikir balasan -- tidak lagi kehilangan koneksi real-time tanpa sebab yang dia sadari) dan Rasa Ketelitian (temuan di luar scope testing awal tetap ditelusuri sampai akar penyebab sebelum diperbaiki, bukan dibiarkan karena "bukan tujuan sesi ini").
+
+**Konteks:** ditemukan saat testing Test 4 Bagian 115 (lihat catatan "Temuan tambahan" di bagian itu) -- koneksi WS yang authenticated tapi idle lebih dari 60 detik ter-close paksa code 1006, ternyata bukan dari logic kode P1-3, melainkan `proxy_read_timeout` default nginx (60 detik) yang menganggap koneksi nganggur kalau tidak ada data lewat dalam rentang itu.
+
+**Klarifikasi penting (sempat didiskusikan karena awalnya membingungkan):** ini SAMA SEKALI tidak terkait ke WS_SESSION_RECHECK_MS (re-check 30 detik untuk deteksi Revoke/Offboard, Bagian 115). Dua mekanisme beda tujuan: WS_SESSION_RECHECK_MS itu soal keamanan (mendeteksi staff yang sengaja di-revoke manusia lain), sedangkan timeout nginx ini murni soal koneksi idle wajar yang tidak ada hubungannya dengan kecurangan/otorisasi staff sama sekali.
+
+**Opsi yang dipertimbangkan:**
+- Opsi A -- naikin angka `proxy_read_timeout` di nginx. Simpel tapi koneksi yang sudah mati beneran (HP mati/sinyal hilang tanpa pernah kirim sinyal apapun) baru ketahuan setelah waktu yang lebih lama, boros resource.
+- Opsi B (DIPILIH) -- ping/pong berkala dari server. Lebih standar untuk WebSocket, otomatis bedain koneksi yang beneran mati vs cuma idle wajar, deteksi lebih cepat & presisi.
+
+**Perubahan kode (server.js, setelah blok `wss.on("connection", ...)`, commit 7613ae5):**
+1. Per-koneksi: `ws.isAlive = true` di-set saat connect, `ws.on("pong", ...)` di-set `ws.isAlive = true` tiap kali client balas pong.
+2. Interval global `WS_HEARTBEAT_MS = 25000` (25 detik) -- tiap tick, loop semua `wss.clients`: kalau `ws.isAlive === false` (belum pernah balas pong sejak ping terakhir) -> `ws.terminate()` (putus paksa, dianggap mati). Kalau masih alive -> set `isAlive = false` lalu `ws.ping()` (nunggu pong balik sebelum tick berikutnya).
+3. Angka 25 detik dipilih supaya ping terjadi jauh sebelum batas 60 detik nginx -- selalu ada "aktivitas" yang bikin nginx tidak anggap koneksi nganggur.
+
+**Testing (LULUS):**
+1. Connect + auth (staff QC Demo, token baru), koneksi dibiarkan idle (tidak kirim pesan apapun) selama 90 detik penuh (melewati batas 60 detik nginx yang sebelumnya bikin close 1006).
+2. Hasil: 3x "got ping from server" tercatat di client log (~25s, ~50s, ~75s sesuai interval), dan **tidak ada close sama sekali** sampai proses dihentikan manual. LULUS -- perbandingan langsung dengan kondisi sebelum fix (Bagian 115 awal, idle >60s selalu close 1006) membuktikan perbaikan ini efektif menutup gap yang ditemukan.
+
+**Verifikasi sebelum commit:** `node -c server.js` syntax OK, `git diff` dicek penuh (cuma 18 baris insertion sesuai rencana, tidak ada yang kesenggol), error log dipantau bersih setelah restart PM2.
+
+**Status: SELESAI & TERUJI.** Ini menutup gap yang ditemukan di tengah testing P1-3 (Bagian 115) -- bukan bagian dari 15 temuan audit ChatGPT (Bagian 105), melainkan temuan operasional baru yang muncul dari testing manual yang teliti.
+
+**Next steps Bagian 116:** tidak ada next step baru dari perbaikan ini -- next steps aktif tetap seperti yang tercatat di Bagian 115 (P1-1 session Redis, P0-6 schema drift, k6 load testing, daftar terbuka Bagian 109, DeprecationWarning client.query()).
