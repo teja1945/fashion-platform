@@ -776,3 +776,42 @@ Next steps bagian 106:
 [ ] Teja coba skenario manual di atas sambil development jalan
 [ ] Anggarkan & cari freelance security researcher SEBELUM onboarding tenant
     pertama yang bukan demo/testing
+
+===================================================================
+107. Lapis 2: Supabase Security Advisor (15 Agustus 2026)
+===================================================================
+Konteks: Menjalankan Supabase Security Advisor (Splinter) sebagai lapis kedua
+setelah audit ChatGPT (bagian 105) -- BUKTI KONKRET pentingnya audit berlapis:
+advisor menemukan 1 temuan BARU yang tidak muncul di audit ChatGPT maupun
+review manual sebelumnya.
+
+Temuan baru: function block_production_events_mutation() (trigger yang baru
+dibuat malam ini untuk P0-4) tidak set search_path -- pola risiko yang sama
+seperti yang disebut ChatGPT untuk resolve_tenant_id(), tapi kali ini kena
+fungsi yang BARU dibuat sendiri hari ini. Menunjukkan perbaikan yang baru
+dibuat pun bisa punya celah baru yang tidak disadari saat itu juga.
+SUDAH DIBENERIN: search_path = '' ditambahkan, diverifikasi advisor bersih
+(0 warning) dan trigger tetap berfungsi (percobaan UPDATE tetap ditolak).
+
+Sekalian dibenerin juga (menuntaskan P2-10 dari bagian 105): resolve_tenant_id()
+dan list_active_tenant_ids() diperketat dari search_path=public jadi
+search_path='' + semua referensi tabel dibuat fully-qualified (public.tenants).
+Diverifikasi: resolve_tenant_id('demo') tetap mengembalikan hasil yang benar.
+
+Security advisor sekarang: 0 warning.
+
+Performance advisor: banyak temuan level INFO/WARN, tapi ini kategori beda
+(kecepatan query, bukan keamanan) -- BELUM DIBENERIN, sengaja ditunda:
+- WARN berulang di ~25 tabel: RLS policy tenant_isolation memanggil
+  current_setting()/auth.<function>() tanpa dibungkus (select ...), sehingga
+  dievaluasi ulang per baris -- lambat kalau data sudah besar, belum terasa
+  sekarang karena data masih sedikit
+- INFO: banyak foreign key tanpa index, dan beberapa index baru (termasuk
+  yang ditambahkan bagian 105) belum pernah kepakai -- wajar untuk tahap
+  testing dengan data sangat sedikit, bukan cacat
+
+Next steps bagian 107:
+[ ] Perbaikan performance RLS (bungkus auth.<function>() dengan (select ...))
+    ditunda sampai mendekati onboarding tenant nyata / data mulai membesar
+[ ] Jalankan get_advisors (security + performance) secara rutin setiap habis
+    ada perubahan DDL, bukan cuma sekali di sesi ini
