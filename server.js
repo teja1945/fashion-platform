@@ -859,6 +859,9 @@ app.post("/v1/photos", tenantResolver, requireApiKey, requireStaffSession, async
   if (buffer.length > MAX_BYTES) {
     return res.status(400).json({ error: "ukuran foto melebihi 5MB" });
   }
+  if (buffer.length < 3 || buffer[0] !== 0xFF || buffer[1] !== 0xD8 || buffer[2] !== 0xFF) {
+    return res.status(400).json({ error: "file bukan JPEG yang valid (magic byte tidak cocok)" });
+  }
 
   const client = await pool.connect();
   try {
@@ -912,13 +915,32 @@ app.post("/v1/photos", tenantResolver, requireApiKey, requireStaffSession, async
       return res.status(502).json({ error: "gagal upload foto ke storage" });
     }
 
-    const insertResult = await withTenant(client, req.tenantId, (c) =>
-      c.query(
-        `INSERT INTO production_stage_photos (tenant_id, production_job_id, stage, storage_path, uploaded_by_staff_id)
-         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-        [req.tenantId, production_job_id, stage, storagePath, staffId]
-      )
-    );
+    let insertResult;
+    try {
+      insertResult = await withTenant(client, req.tenantId, (c) =>
+        c.query(
+          `INSERT INTO production_stage_photos (tenant_id, production_job_id, stage, storage_path, uploaded_by_staff_id)
+           VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+          [req.tenantId, production_job_id, stage, storagePath, staffId]
+        )
+      );
+    } catch (insertErr) {
+      console.error("photos: INSERT gagal setelah upload sukses, mencoba rollback storage:", insertErr.message);
+      try {
+        const rollbackRes = await fetch(`${SUPABASE_URL}/storage/v1/object/stage-photos/${storagePath}`, {
+          method: "DELETE",
+          headers: { apikey: SUPABASE_SECRET_KEY },
+        });
+        if (!rollbackRes.ok) {
+          console.error(`photos: rollback storage GAGAL untuk ${storagePath}, file orphan tertinggal. Status: ${rollbackRes.status}`);
+        } else {
+          console.warn(`photos: rollback storage sukses untuk ${storagePath} setelah INSERT gagal.`);
+        }
+      } catch (rollbackErr) {
+        console.error(`photos: rollback storage GAGAL (exception) untuk ${storagePath}, file orphan tertinggal:`, rollbackErr.message);
+      }
+      throw insertErr;
+    }
 
     res.json({ ok: true, photo: insertResult.rows[0] });
   } catch (err) {
