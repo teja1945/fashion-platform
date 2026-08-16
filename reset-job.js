@@ -7,7 +7,7 @@ const { pool, withTenant } = require('./db');
     await withTenant(client, '8ae20661-626d-42c9-b930-6c926ca3ce99', async (c) => {
       const r = await c.query(
         `UPDATE production_jobs SET
-           current_version = 5,
+           current_version = next_sequence_version,
            current_stage = 'jahit',
            gap_status = 'CLOSED',
            updated_at = now()
