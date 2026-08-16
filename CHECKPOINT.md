@@ -934,3 +934,72 @@ rate-limiting, 2 scanner.html, 1 medium) BELUM DIREVIEW -- next steps.
 [ ] Pertimbangkan cross-check manual ke 1 AI lain (Gemini/Grok, copy-paste
     manual karena tidak ada MCP connector ke model AI lain) sebagai lapis
     tambahan -- belum dieksekusi, masih rencana
+===================================================================
+109. Daftar terbuka: celah keamanan/operasional yang BELUM dibahas di checkpoint manapun (16 Agustus 2026)
+===================================================================
+Konteks: Di luar temuan CodeQL (Bagian 108) dan audit ChatGPT (Bagian 105),
+ini daftar area yang sejauh ini belum pernah disinggung sama sekali di
+checkpoint -- bukan berarti semuanya bolong beneran, tapi belum pernah
+dicek/didiskusikan, jadi dicatat sebagai daftar terbuka buat direview satu-satu.
+BELUM ada yang dieksekusi atau diverifikasi -- murni daftar next steps kandidat.
+
+1. Backup & disaster recovery -- belum ada catatan soal backup database
+   otomatis. Perlu dicek: apakah project Supabase (kwhybffbcqopqbbnuigg)
+   sudah di plan yang include PITR (point-in-time recovery), atau masih
+   free tier yang backup-nya terbatas/tidak ada. Kalau VPS atau database
+   bermasalah besok, belum jelas rencana pemulihannya.
+
+2. Permission file .env di VPS -- belum dicek apakah file .env (berisi
+   API key, Supabase secret key, dll) sudah dibatasi permission-nya
+   (idealnya chmod 600, cuma owner yang bisa baca).
+
+3. Logging & monitoring alert -- sejauh ini semua investigasi masalah
+   sifatnya reaktif (dicek manual pas buka laptop/HP). Belum ada uptime
+   monitoring (misal UptimeRobot, gratis) atau alert otomatis kalau ada
+   error massal / server down di luar jam kerja.
+
+4. Audit trail / siapa-ubah-apa -- di luar production_events, belum jelas
+   apakah ada log lengkap staff mana yang mengubah data apa dan kapan,
+   untuk keperluan investigasi dispute nantinya.
+
+5. Session/token expiry & revocation -- belum dicek apakah token staff
+   dari createSession() punya masa berlaku (expiry), dan apakah ada cara
+   cepat revoke token spesifik kalau HP staff hilang/dicuri (di luar
+   set is_active=false yang menonaktifkan staff-nya, bukan token yang
+   sudah terlanjur aktif).
+
+6. Dependency audit manual -- Dependabot baru aktif hari ini (Bagian 108),
+   belum pernah dijalankan npm audit manual di VPS untuk cek apakah ada
+   CVE lama yang sudah menumpuk di dependency yang terpasang.
+
+7. Validasi tipe file foto -- endpoint POST /v1/photos mengecek ukuran
+   (max 5MB) tapi belum ada pengecekan MIME type/magic bytes untuk
+   memastikan file yang diupload benar-benar JPEG, bukan file lain yang
+   di-rename ekstensinya.
+
+8. CORS policy -- belum ada catatan konfigurasi CORS di server.js, perlu
+   dicek apakah sudah dibatasi ke domain tertentu (benangrasa.com dan
+   subdomain terkait) atau masih default terbuka ke semua origin.
+
+9. Auto-renewal SSL certbot -- HTTPS/SSL sudah aktif (Bagian 100-an), tapi
+   belum pernah diverifikasi apakah certbot auto-renew berjalan otomatis
+   (cek via certbot renew --dry-run), supaya sertifikat tidak kadaluarsa
+   tanpa disadari.
+
+10. Tenant isolation testing -- ini SaaS multi-tenant, risiko paling
+    kritis kalau ada celah query yang bisa "bocor" data antar tenant.
+    Belum pernah ada test eksplisit yang mencoba akses data tenant lain
+    memakai kredensial/API key tenant A.
+
+11. Kebijakan PIN staff -- PIN 4 digit (ruang kemungkinan cuma 10.000
+    kombinasi). Rate limit login sudah ada (5x/30 detik per staff,
+    20x/30 detik per IP -- lihat server.js:164), tapi belum ada
+    lockout permanen/manual-unlock setelah percobaan gagal berkali-kali
+    dalam rentang lebih panjang (rate limit saat ini cuma membatasi
+    kecepatan, bukan mencegah percobaan berkelanjutan dalam jangka lama).
+
+Prioritas belum ditentukan -- next session sebaiknya diskusikan bareng
+Teja mana yang paling relevan untuk kondisi v1 (1 tenant, brand owner
+konveksi kecil) vs mana yang bisa ditunda sampai onboarding tenant nyata.
+Kandidat paling murah/cepat untuk dicoba duluan: #6 (npm audit, satu
+command) dan #9 (cek certbot renew, satu command).
