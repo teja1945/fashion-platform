@@ -1481,3 +1481,49 @@ Level Database (RLS langsung, role app_user, tanpa lewat endpoint apapun):
 **Catatan batasan testing (jujur dicatat, bukan diklaim tuntas 100%):** API yang ada sekarang cuma punya endpoint list (GET /v1/orders, /v1/staff/list, /v1/notifications), tidak ada GET-by-ID -- jadi skenario "API key & subdomain sah untuk tenant A, tapi resource ID yang diminta lewat endpoint milik tenant B" belum bisa dites lewat jalur HTTP asli. Skenario itu digantikan test level database (test 4-5 di atas) yang menguji mekanisme yang sama (RLS) secara langsung -- risikonya dianggap tertutup, tapi kalau nanti ada endpoint GET-by-ID baru, sebaiknya diulang juga test serupa lewat HTTP untuk kelengkapan.
 
 **Next steps Bagian 117:** tidak ada next step baru dari testing ini. Next steps aktif tetap seperti Bagian 115/116 (P1-1 session Redis, P0-6 schema drift, k6 load testing, sisa daftar terbuka Bagian 109 poin #1,3,4,5,7,8,11, DeprecationWarning client.query()).
+
+## 118. Progress -- Bagian 109 sisa poin cepat: CORS BELUM DIEKSEKUSI (keputusan desain sudah disepakati, serah-terima ke sesi berikutnya) (16 Agustus 2026)
+
+**Status: KEPUTUSAN DESAIN SUDAH DISEPAKATI, KODE BELUM DITULIS SAMA SEKALI.** Sesi ini habis waktu di tengah diskusi CORS sebelum sempat eksekusi -- room berikutnya WAJIB baca bagian ini dulu sebelum lanjut, jangan mulai dari nol.
+
+**Temuan awal:** CORS sama sekali belum dikonfigurasi di server.js (grep "cors\|Access-Control" -> 0 hasil, package "cors" juga belum ada di package.json). Ini poin #8 dari daftar terbuka Bagian 109.
+
+**Diskusi yang terjadi (penting dibaca urutannya, karena keputusan akhir beda dari asumsi awal):**
+1. Sempat dipertimbangkan tunda CORS sampai frontend mulai dibikin (biar domain final pasti) -- DIKOREKSI: domain final SUDAH ada (benangrasa.com, Bagian 99), jadi tidak perlu ditunda.
+2. Rencana awal: pattern wildcard `*.benangrasa.com` doang, cukup untuk kebutuhan sekarang (1 tenant demo + rencana v1 1 klien kecil).
+3. Teja menegur pendekatan itu terlalu sempit -- **PRINSIP DITEGASKAN ULANG: jangan menyepelekan kebutuhan cuma karena sekarang masih kecil/1 klien, ini persis Rasa Grosir (Bagian 88/95) yang sudah jadi prinsip permanen.** Skenario konkret yang dibahas: tenant besar (misal "Konveksi Makmur") suatu saat mau pakai domain custom sendiri (produksi.konveksimakmur.com) bukan subdomain benangrasa.com, demi branding sendiri.
+
+**KEPUTUSAN DESAIN YANG SUDAH DISEPAKATI (siap dieksekusi langsung, tidak perlu didiskusikan ulang):**
+- CORS dibangun dengan struktur **daftar/list origin yang bisa diperluas**, BUKAN wildcard hardcode mati satu baris. Sekarang isinya cuma pattern `*.benangrasa.com` + domain utama, tapi strukturnya (array/list, dicek pakai regex untuk wildcard subdomain) sudah siap ditambah entry baru kapan saja.
+- ANALOGI yang disepakati: gerbang yang baca dari "daftar tamu" yang bisa ditambah, bukan gerbang yang cuma kenal 1 nama dan harus dibongkar total kalau mau nambah.
+- Ini levelnya STRUKTUR/kerangka (sesuai prinsip Bagian 95), BUKAN logic penuh "tenant self-service pilih domain sendiri dari dashboard" -- itu ide besar terpisah yang belum diriset (poin I daftar ide, archive bagian 53), TIDAK dikerjakan sekarang.
+
+**3 KETERBATASAN yang WAJIB dipahami sebelum dianggap "selesai" (disampaikan Claude, disetujui arahnya oleh Teja):**
+1. Daftar origin yang diizinkan masih di-hardcode di kode (array biasa di server.js), BUKAN baca dari tabel database. Kalau nanti ada tenant minta domain custom beneran, masih perlu edit kode + deploy ulang manual -- belum self-service.
+2. CORS cuma soal "browser boleh nampilin hasil ke halaman web mana". tenantResolver (fungsi yang nentuin request ini punya tenant_id apa) SAMA SEKALI BELUM diupdate untuk mengenali domain custom -- sekarang cuma baca subdomain pola `X.benangrasa.com`. CORS mengizinkan browser manggil, TAPI backend belum tahu cara translate domain custom ke tenant_id yang benar. Ini 2 sistem terpisah yang harus diupdate BERSAMAAN nanti, CORS doang tidak cukup.
+3. Kalau nanti domain custom tenant beneran dieksekusi, itu combo 3 langkah: (a) DNS tenant diarahkan ke server Benangrasa -- mirip pola Bagian 99 tapi domain milik tenant, (b) tenantResolver diperluas mengenali domain custom -> tenant_id, (c) sertifikat SSL terpisah perlu di-generate khusus domain itu (certbot ulang). BELUM DIRISET SAMA SEKALI cara teknis detailnya -- next step besar tersendiri, bukan sekadar tambah baris CORS.
+
+**NEXT STEP LANGSUNG (paling prioritas buat sesi berikutnya, tinggal eksekusi tanpa perlu diskusi ulang):**
+[ ] `npm install cors` di VPS
+[ ] Tulis middleware CORS di server.js: origin function yang cek regex `/\.benangrasa\.com$/` ATAU persis `benangrasa.com`, DITAMBAH array kosong/siap-isi untuk domain custom tenant ke depan (misal `const CUSTOM_TENANT_ORIGINS = []` dengan komentar penjelasan)
+[ ] Testing: request dari origin benangrasa.com/subdomain -> harus lolos (header Access-Control-Allow-Origin muncul benar). Request dari origin asing (misal evil.com atau domain mirip seperti benangrasa.com.evil.ru) -> harus DITOLAK.
+[ ] git diff dicek penuh sebelum commit (kebiasaan wajib Bagian 103), commit & push
+[ ] Update CHECKPOINT.md dengan hasil testing aktual (bukan placeholder)
+
+**Next steps Bagian 109 lain yang MASIH BELUM DISENTUH sama sekali (belum didiskusikan apapun):**
+[ ] #5 session/token expiry & revocation (sebagian relevan dari kerja WS Bagian 115/116, tapi belum di-cross-check eksplisit)
+[ ] #7 validasi MIME foto (KEMUNGKINAN BESAR sudah kejawab di P1-4/P1-5 Bagian 114 -- magic byte JPEG check -- tinggal cross-check baca ulang kode, bukan kerjaan baru)
+[ ] #11 kebijakan lockout PIN (rate limit sudah ada tapi belum ada lockout permanen setelah percobaan gagal berkelanjutan jangka panjang)
+[ ] #1 backup/DR (cek plan Supabase apakah include PITR)
+[ ] #3 uptime monitoring/alerting otomatis
+[ ] #4 audit trail siapa-ubah-apa di luar production_events
+
+**Next steps lama yang masih menumpuk (belum berubah dari Bagian 115/116/117):**
+[ ] P1-1 session/rate-limit ke Redis (atau catat eksplisit constraint "1 instance only")
+[ ] P0-6 regenerate file schema dari live database (schema drift)
+[ ] k6 load testing
+[ ] Investigasi DeprecationWarning client.query() yang masih tersisa (Bagian 92/98/114)
+[ ] Frontend web responsive -- MASIH BELUM TERSENTUH SAMA SEKALI, item terbesar dari target v1 (Bagian 97)
+[ ] Endpoint mediator backup/resign yang lama tertunda (next steps lama Bagian 5)
+
+**Catatan buat sesi berikutnya:** CHECKPOINT.md sudah [ISI JUMLAH BARIS SETELAH APPEND INI] baris -- pertimbangkan split ke CHECKPOINT_ARCHIVE_3.md (arsipkan Bagian 89-114 yang sudah lama SELESAI & TERUJI, sisakan Bagian 115-118 + next steps di file aktif) supaya sesi berikutnya tidak kesulitan fetch/baca ulang, sesuai aturan split yang sudah tertulis di bagian atas file ini.
