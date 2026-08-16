@@ -1,4 +1,5 @@
 const { pool, withTenant, getActiveTenantIds } = require("./db");
+const { assignVersionAndStoreInTx } = require("./versioning");
 
 const GAP_THRESHOLD_SECONDS = 60;
 const GRACE_PERIOD_SECONDS = 300;
@@ -65,19 +66,17 @@ async function checkGapsForTenant(client, tenantId) {
          WHERE id = $1 AND gap_status = 'RECOVERING'`,
         [gap.production_job_id]
       );
-      await client.query(
-        `INSERT INTO production_events (tenant_id, production_job_id, event_type, event_version, payload)
-         VALUES ($1, $2, 'gap.escalated', 1, $3::jsonb)`,
-        [
-          tenantId,
-          gap.production_job_id,
-          JSON.stringify({
-            escalation_level: "ESCALATED",
-            age_seconds: ageSeconds,
-            reason: "auto_recovery_timeout",
-          }),
-        ]
-      );
+      await assignVersionAndStoreInTx(client, {
+        tenantId,
+        productionJobId: gap.production_job_id,
+        eventType: "gap.escalated",
+        eventVersion: 1,
+        payload: {
+          escalation_level: "ESCALATED",
+          age_seconds: ageSeconds,
+          reason: "auto_recovery_timeout",
+        },
+      });
     }
   }
 }
@@ -148,15 +147,13 @@ async function manuallyResolveGap(tenantId, productionJobId, resolvedBy) {
           return { resolved: false, reason: "no_matching_gap" };
         }
 
-        await c.query(
-          `INSERT INTO production_events (tenant_id, production_job_id, event_type, event_version, payload)
-           VALUES ($1, $2, 'gap.resolved', 1, $3::jsonb)`,
-          [
-            tenantId,
-            productionJobId,
-            JSON.stringify({ resolution_type: "manual_fix", resolved_by: resolvedBy }),
-          ]
-        );
+        await assignVersionAndStoreInTx(c, {
+          tenantId,
+          productionJobId,
+          eventType: "gap.resolved",
+          eventVersion: 1,
+          payload: { resolution_type: "manual_fix", resolved_by: resolvedBy },
+        });
 
         console.log(`Gap untuk job ${productionJobId} di-resolve manual oleh ${resolvedBy}.`);
         return { resolved: true };
