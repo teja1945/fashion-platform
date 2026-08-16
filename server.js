@@ -1749,6 +1749,8 @@ wss.on("connection", (ws, req) => {
   ws.authToken = null;
   ws.authenticated = false;
   ws.typingCaseId = null; // kasus mana yang lagi diketik staff ini, kalau ada
+  ws.isAlive = true;
+  ws.on("pong", () => { ws.isAlive = true; });
 
   let recheckInterval = null;
 
@@ -1829,6 +1831,22 @@ wss.on("connection", (ws, req) => {
     }
   });
 });
+
+// P1-3 lanjutan: ping/pong berkala supaya nginx proxy_read_timeout (default 60s)
+// tidak memutus paksa koneksi WS yang authenticated tapi lagi idle (staff diem
+// baca chat, dst). Ping/pong ini beda tujuan dari WS_SESSION_RECHECK_MS di atas --
+// yang itu soal keamanan (revoke), ini soal menjaga koneksi tetap hidup wajar.
+const WS_HEARTBEAT_MS = 25000;
+const wsHeartbeatInterval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      console.log(`WS: koneksi di-terminate, tidak respon ping (tenant ${ws.tenantId})`);
+      return ws.terminate();
+    }
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, WS_HEARTBEAT_MS);
 
 // Ambil data kasus + mediator staff_id, DI DALAM transaksi tenant+staff-scoped
 // (pola aman dari bug RLS Bagian 80). Dipakai buat validasi sinyal typing.
