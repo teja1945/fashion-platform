@@ -1139,3 +1139,73 @@ lainnya (P0-1, P0-5, P0-6, P1-1 s/d P1-5) + 2 alert CodeQL scanner.html
     ulang otomatis jalan setelah push, biasanya beberapa menit)
 [ ] 2 alert scanner.html (XSS DOM, clear-text storage) + 1 medium -- masih
     ditunda sampai rombak frontend total (keputusan lama, belum berubah)
+
+===================================================================
+112. Perbaikan P0-1 (job testing gap_status salah) + bug proses baru ditemukan di reset-job.js -- SELESAI & TERUJI (16 Agustus 2026)
+===================================================================
+Konteks: Menuntaskan P0-1 dari audit ChatGPT (Bagian 105) -- job testing
+25352257... yang gap_status-nya CLOSED padahal sequence 10 hilang di
+production_events dan pending_events masih nyangkut sequence 11.
+
+Rasa yang dipenuhi: Rasa Ketelitian (akar masalah ditelusuri sampai tuntas
+lewat kode asli -- worker.js, stateLayer.js, versioning.js, reset-job.js --
+bukan cuma nambal gejala yang kelihatan; investigasi lanjut menemukan bug
+proses TAMBAHAN yang tidak diminta dicari, dan tetap dibenerin saat itu juga
+alih-alih ditunda) dan Rasa Keamanan (audit trail production_events &
+gap_audit_log SAMA SEKALI tidak disentuh/dihapus meski investigasi
+menyinggungnya -- immutability tetap dijaga, cuma tabel buffer kerja
+pending_events yang dibersihkan).
+
+**Root cause gap sequence 10 (historis, 9 Agustus 2026):** bug di kode LAMA
+ingestEvent() (sudah DIHAPUS TOTAL di Bagian 110 saat perbaikan P0-2/P0-3) --
+nomor urut sempat "dijatah" tapi baris event-nya tidak pernah berhasil
+ke-insert ke production_events. Bug spesifik ini TIDAK BISA terjadi lagi
+dengan kode sekarang, karena jalur kode itu sudah tidak ada.
+
+**Temuan proses tambahan (tidak diduga sebelumnya): reset-job.js adalah
+sumber gap palsu berulang.** Script ini (dipakai untuk reset job demo ke
+stage jahit untuk testing berulang-ulang) hardcode `current_version = 5`
+langsung ke database, TANPA menyentuh next_sequence_version. Karena
+sequence_version terus jalan maju permanen (tidak pernah mundur, sekarang di
+17), tiap kali reset-job.js dijalankan, current_version dipaksa jauh
+ketinggalan dari next_sequence_version yang sebenarnya -- begitu testing
+lanjut & event baru masuk, stateLayer.js mendeteksi "gap palsu" (event baru
+kelihatan out-of-order padahal sebenarnya tidak), lalu buffer+gap_status OPEN
+lagi. Pola ini KEMUNGKINAN BESAR adalah penyebab asli gap 9 Agustus itu
+sendiri (4 baris historis di gap_audit_log dengan version_at_gap 5,5,7,9
+match persis dengan pola reset-lalu-catch-up ini), bukan cuma bug ingestEvent
+semata -- keduanya kemungkinan terjadi bersamaan hari itu.
+
+**Perbaikan yang dieksekusi:**
+1. DELETE 1 baris nyangkut di pending_events (sequence_version 11, job
+   25352257...) -- aman karena event itu sudah lama ada permanen di
+   production_events, current_version sudah jauh melewatinya. gap_audit_log
+   TIDAK disentuh (tetap sebagai jejak audit permanen, sesuai Rasa Keamanan).
+2. reset-job.js diperbaiki: `current_version = 5` (angka mati) diganti jadi
+   `current_version = next_sequence_version` (ikut nomor urut asli yang
+   sebenarnya) -- supaya reset ke depan tidak pernah lagi menciptakan gap
+   palsu, karena current_version akan selalu sinkron ke sequence_version
+   asli meski current_stage dipaksa mundur untuk keperluan testing.
+
+**Verifikasi:**
+1. pending_events untuk job 25352257... dicek ulang -- 0 baris. LULUS.
+2. reset-job.js dijalankan ulang setelah fix -- current_version dan
+   next_sequence_version keduanya 17 (sinkron), current_stage kembali ke
+   'jahit' seperti fungsi aslinya. LULUS.
+3. pending_events dicek lagi setelah testing reset -- tetap 0 baris, tidak
+   ada gap baru tercipta. LULUS.
+4. git diff dicek sebelum commit (kebiasaan Bagian 103) -- cuma 1 baris
+   berubah, sesuai ekspektasi. Commit 538777c.
+
+**Status: P0-1 SELESAI & TERUJI, PLUS bug proses reset-job.js yang belum
+pernah tercatat sebelumnya ikut dibenerin di sesi yang sama (tidak ditunda).**
+9 dari 15 temuan audit ChatGPT (Bagian 105) sekarang sudah dibenerin total.
+
+**Next steps Bagian 112:**
+[ ] Sisa 6 temuan kode ChatGPT: P0-5 (Vercel, nunggu frontend), P0-6 (schema
+    drift file), P1-1 (session in-memory), P1-2 (API key global), P1-3 (WS
+    token URL), P1-4+P1-5 (storage orphan + validasi foto upload -- rencana
+    prioritas berikutnya menurut diskusi sesi ini)
+[ ] Cek ulang GitHub code scanning setelah commit Bagian 111 -- pastikan 23
+    alert missing-rate-limiting sudah "fixed" (belum dicek dari sesi 111)
+[ ] k6 load testing (belum dieksekusi, next steps lama dari Bagian 110/111)
