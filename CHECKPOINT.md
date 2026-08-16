@@ -714,3 +714,61 @@ prioritas paling depan begitu sesi ini lanjut):**
 [ ] CORS (Bagian 118, desain sudah disepakati, belum dieksekusi)
 [ ] P1-1 session ke Redis, PIN progressive lockout, test suite CI gate
 [ ] #16/#17 Bagian 119 (audit trail admin, monitoring) -- belum diverifikasi kodenya
+
+## 122. P0-BARU-2: job_locks race condition -- SELESAI & TERUJI, lapis aplikasi (17 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Keamanan (celah race condition acquire lock
+sekarang tertutup di 2 lapis -- database via partial unique index, DAN
+aplikasi via SAVEPOINT yang membalas 409 manusiawi alih-alih 500/crash) dan
+Rasa Ketelitian (percobaan pertama SAVEPOINT sempat gagal 500 karena token
+staff basi akibat pm2 restart menghapus sessionMap in-memory -- ditelusuri
+sampai akar penyebab sebelum retest, bukan diasumsikan fix salah).
+
+**Konteks:** melanjutkan Bagian 121 (serah-terima) -- lapis database sudah
+selesai (partial unique index), lapis aplikasi (SAVEPOINT fix di endpoint
+POST /v1/lock/acquire) sudah ditulis tapi belum ditest ulang karena lock
+nyangkut dari percobaan race pertama yang gagal.
+
+**Langkah yang dieksekusi sesi ini:**
+1. Lock nyangkut (Admin Demo, job demo) dibersihkan via POST /v1/lock/release.
+2. `pm2 restart fashion-platform` -- load kode SAVEPOINT fix.
+3. Retest race pertama GAGAL sementara: kedua token staff lama ("sesi
+   kadaluarsa") -- ternyata BUKAN bug SAVEPOINT, murni efek pm2 restart
+   menghapus sessionMap in-memory (P1-1, belum pindah ke Redis, konsisten
+   catatan lama). Staff Jahit Demo & Admin Demo login ulang (PIN dari
+   CHECKPOINT_LOCAL.md), dapat token baru.
+4. Retest race dengan token baru: 2 curl paralel ke job demo yang sama --
+   Staff Jahit Demo dapat 200 ok:true, Admin Demo dapat 409 "job sedang
+   dikerjakan orang lain" dengan locked_by & locked_at yang benar. LULUS --
+   tidak ada 500, tidak ada transaksi aborted diam-diam.
+
+**Kode final (server.js, commit 2c06d18, 37 insertion/5 deletion):**
+INSERT job_locks dibungkus SAVEPOINT before_lock_insert. Sukses -> RELEASE
+SAVEPOINT lanjut normal. Kena 23505 (race asli, lolos dari SELECT activeLock
+check di atasnya) -> ROLLBACK TO SAVEPOINT dulu (supaya transaksi tidak
+berstatus aborted 25P02 dan menolak query berikutnya) -> baru SELECT siapa
+pemegang lock yang menang -> balas 409 dengan nama staff & waktu lock,
+bukan 500. Error lain (bukan 23505) tetap di-throw normal, tidak ketutup.
+
+**Verifikasi sebelum commit:** `node -c server.js` syntax OK, `git diff`
+dibaca penuh (tidak ada yang kesenggol di luar blok lock/acquire), pesan
+commit rujuk CHECKPOINT Bagian 119/120/121 untuk jejak konteks.
+
+**Status: P0-BARU-2 SELESAI & TERUJI di kedua lapis (database + aplikasi).**
+Kedua P0-BARU dari audit ChatGPT ronde 2 (Bagian 119) sekarang tertutup.
+
+**Next steps Bagian 122 (belum berubah dari Bagian 120/121, 2 P0-BARU sudah
+tuntas semua):**
+[ ] P0-6 lama: schema/migration reproducibility -- regenerate dari live
+    database atau bikin folder migration history di repo
+[ ] Perbaiki pesan error mediator (nomor baris server.js perlu dicek ulang,
+    mungkin bergeser akibat perubahan Bagian 121/122) -- keputusan Teja:
+    admin boleh (perbaiki pesan) atau owner-only (perbaiki logic)?
+[ ] CORS (Bagian 118, desain sudah disepakati -- struktur list origin +
+    regex wildcard subdomain, siap dieksekusi tanpa diskusi ulang)
+[ ] P1-1 session/rate-limit ke Redis (makin nyata kebutuhannya -- pm2
+    restart barusan langsung logout semua staff aktif di tengah kerja)
+[ ] PIN progressive lockout (Bagian 109 #11 / Bagian 119 poin 14)
+[ ] Test suite CI gate (Bagian 119 poin 15)
+[ ] #16/#17 Bagian 119 (audit trail admin, monitoring) -- belum diverifikasi
+    kodenya, masih asumsi dari Bagian 109
