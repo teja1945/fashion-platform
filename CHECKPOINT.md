@@ -1209,3 +1209,95 @@ pernah tercatat sebelumnya ikut dibenerin di sesi yang sama (tidak ditunda).**
 [ ] Cek ulang GitHub code scanning setelah commit Bagian 111 -- pastikan 23
     alert missing-rate-limiting sudah "fixed" (belum dicek dari sesi 111)
 [ ] k6 load testing (belum dieksekusi, next steps lama dari Bagian 110/111)
+
+## 114. P1-2 (API key per-tenant) + P1-4/P1-5 (validasi foto + rollback storage) — SELESAI & TERUJI (16 Agustus 2026)
+
+Konteks: melanjutkan Bagian 113 (dikerjakan room paralel yang limitnya habis di
+tengah jalan) — server.js VPS saat sesi ini dimulai berisi campuran 2 kerjaan
+belum commit (fix foto P1-4/P1-5 yang sudah siap, dan requireApiKey per-tenant
+P1-2 yang belum lengkap). Sesi ini menuntaskan keduanya sampai commit & push.
+
+Rasa yang dipenuhi: Rasa Keamanan (API key sekarang benar-benar tenant-scoped,
+diverifikasi bukan cuma format-valid tapi juga ditolak kalau dipakai lintas
+tenant; validasi magic byte JPEG mencegah file bukan-gambar lolos cuma karena
+Content-Type label; rollback storage mencegah orphan file menumpuk diam-diam)
+dan Rasa Ketelitian (setiap klaim di catatan Bagian 113 diverifikasi ulang ke
+sumber — DB, grant, error log — sebelum dipercaya dan dilanjutkan; commit
+dipecah 3 bagian sesuai topik, bukan digabung sekaligus; diff dicek penuh
+sebelum commit maupun sebelum push, sesuai kebiasaan Bagian 103).
+
+**Verifikasi awal sesi (sebelum eksekusi apapun):**
+- Kondisi DB dicek ulang ke Supabase MCP — `api_key_hash` masih NULL untuk
+  kedua tenant demo, persis sesuai catatan Bagian 113 (tidak ada perubahan
+  dari room lain di antara sesi). Grant `set_tenant_api_key()` diverifikasi
+  ulang lewat `pg_proc.proacl` (bukan `information_schema.routine_privileges`
+  yang ternyata tidak menangkap grant function ini) — hasil: cuma
+  postgres/service_role/app_user, aman.
+
+**Langkah 1 — Generate API key:** `node scripts/set-tenant-api-keys.js`
+dijalankan di VPS. Terverifikasi ulang ke DB: kedua tenant sekarang
+`has_api_key_hash: true`.
+
+**Langkah 2 — Dokumentasi testing:** ditulis ke CHECKPOINT_LOCAL.md — nama
+env var `BRG_DEMO_TENANT_API_KEY` / `BRG_DEMO2_TENANT_API_KEY`, cara pakai di
+curl, cara rotate key. Plaintext key tidak pernah lewat chat manapun.
+
+**Langkah 3 — Review logic requireApiKey:** dikonfirmasi SUDAH benar per-tenant
+(manggil `verify_tenant_api_key($1, $2)`, bukan bandingin ke API_KEY global) —
+tapi ditemukan 2 hal perlu dibereskan:
+- Komentar di atas fungsi masih bilang "API KEY (global untuk semua tenant —
+  known limitation)" — basi, tidak sinkron dengan kode di bawahnya (pola yang
+  sama seperti EVENT_CONTRACTS.md di Bagian 105). Diperbaiki.
+- `grep "API_KEY" server.js` dijalankan untuk pastikan tidak ada jalur
+  fallback ke API_KEY global lama yang tersisa sebagai celah bypass — hasil
+  kosong, bersih.
+- `/v1/whoami` sengaja tanpa requireApiKey (cuma expose tenantId+subdomain,
+  tidak ada data sensitif) — dikonfirmasi bukan oversight, aman dibiarkan.
+
+**Temuan tambahan di tengah proses (tidak diduga sebelumnya): trust proxy
+belum di-set.** Setelah restart pertama, error log menunjukkan
+`ValidationError: X-Forwarded-For header is set but trust proxy is false`
+dari express-rate-limit (Bagian 111) — backend di belakang nginx (Bagian
+99-100) tapi Express belum tahu untuk percaya header dari proxy tersebut.
+Request tetap jalan (200), tapi rate limiter berisiko salah identifikasi IP
+client. Diperbaiki: `app.set("trust proxy", "loopback")` ditambahkan setelah
+`const app = express()`, sebelum `apiRateLimiter` dipasang (urutan penting).
+Diverifikasi: error log bersih total setelah restart ulang.
+
+**Langkah 4 — Restart & testing (setelah semua fix di atas):**
+1. `/v1/whoami` tanpa API key → 200 (endpoint publik, sesuai desain).
+2. `/v1/orders` dengan API key benar (tenant demo) → 200.
+3. `/v1/orders` dengan API key ngasal → 401.
+4. `/v1/orders` (subdomain "demo") dengan API key milik "Demo Tenant Kedua"
+   → 401. **Ini skenario paling kritis** — konfirmasi API key benar-benar
+   tenant-scoped, tidak bisa dipakai lintas tenant meski formatnya valid.
+
+**Commit (3 terpisah, sesuai rencana Bagian 113):**
+1. `c9bde67` — scripts/set-tenant-api-keys.js
+2. `0f26c0c` — Fix P1-4/P1-5: magic byte JPEG + rollback storage on INSERT failure
+3. `cdbb870` — P1-2: requireApiKey per-tenant + trust proxy fix
+
+Semua sudah di-push (`67973f9..cdbb870`). `git status` bersih, `git diff HEAD~3 HEAD`
+dicek penuh sebelum push — tidak ada baris nyasar.
+
+**Status: P1-2, P1-4, P1-5 dari audit ChatGPT (Bagian 105) SELESAI & TERUJI.**
+12 dari 15 temuan sekarang sudah dibenerin total (9 sebelumnya + 3 ini).
+3 sisanya: P0-5 (Vercel, nunggu frontend), P0-6 (schema drift file), P1-1
+(session in-memory), P1-3 (WS token di URL).
+
+**Catatan teknis untuk sesi berikutnya:**
+- DeprecationWarning "client.query() already executing" MASIH muncul (kali
+  ini dari scripts/set-tenant-api-keys.js) — dicatat sejak Bagian 92/98,
+  fix listener Bagian 98 ternyata TIDAK menghilangkan ini sepenuhnya. Masih
+  belum diinvestigasi tuntas, jangan dianggap otomatis kelar oleh fix mana pun
+  sampai benar-benar dicek sumbernya.
+
+**Next steps Bagian 114:**
+[ ] Cek ulang GitHub code scanning setelah commit ini
+[ ] P1-3: token WebSocket lewat header/handshake, bukan query string URL
+[ ] P1-1: session/rate-limit dari in-memory Map() ke Redis (atau catat
+    eksplisit constraint "1 instance only")
+[ ] P0-6: regenerate file schema dari live database (schema drift)
+[ ] Investigasi tuntas DeprecationWarning client.query() yang masih tersisa
+[ ] k6 load testing (belum dieksekusi, next steps lama dari Bagian 110/111)
+[ ] Daftar terbuka Bagian 109 (backup/DR, .env permission, dst) — belum direview
