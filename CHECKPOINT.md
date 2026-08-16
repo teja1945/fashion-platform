@@ -488,3 +488,63 @@ Level Database (RLS langsung, role app_user, tanpa lewat endpoint apapun):
 [ ] Endpoint mediator backup/resign yang lama tertunda (next steps lama Bagian 5)
 
 **Catatan:** CHECKPOINT.md di-split 16 Agustus 2026 -- Bagian 89-114 diarsipkan ke CHECKPOINT_ARCHIVE_3.md, file ini sekarang 490 baris (Bagian 1-9, 64, 88, 115-118 + next steps aktif).
+
+## 119. Verifikasi tuntas audit ChatGPT ronde 2 (17 poin) -- SEMUA DIVERIFIKASI KE SUMBER ASLI (16 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Ketelitian (audit eksternal ronde 2 TIDAK diterima mentah maupun ditolak mentah -- setiap dari 17 poin diverifikasi satu-satu ke sumber asli: Supabase live via MCP, kode server.js/worker.js/db.js/ingestion.js di VPS, Vercel API via MCP -- sebelum dipercaya atau dicatat; 1 poin terbukti salah/basi ditemukan dan dikoreksi, bukan diikuti buta).
+
+**Konteks:** Teja minta cross-check audit ChatGPT ronde 2 (lebih dalam dari Bagian 105, menyilang GitHub+Supabase live+migration history+RLS+event chain+Vercel+CI). Semua 17 poin + 1 catatan authorization diverifikasi tuntas satu-satu, bukan diterima langsung.
+
+**HASIL: 16 dari 17 poin TERBUKTI VALID. 1 poin TERBUKTI SALAH/BASI. Plus 1 bug baru ditemukan di luar 17 poin.**
+
+### Temuan BARU paling kritis (belum pernah tercatat sebelumnya):
+
+**P0-BARU-1: Worker gap-monitor bypass event allocator -- INSERT SELALU GAGAL TOTAL, lebih parah dari klaim awal.**
+worker.js baris 69-70 (`gap.escalated`) dan 152-153 (`gap.resolved`) INSERT langsung ke production_events TANPA mengisi kolom `sequence_version`. Dicek struktur tabel: `sequence_version` adalah NOT NULL TANPA default value -- artinya INSERT ini PASTI gagal (constraint violation) setiap kali dijalankan, bukan cuma "sequence_version kosong". Dikonfirmasi: `SELECT count(*) FROM production_events WHERE event_type IN ('gap.escalated','gap.resolved')` = 0 baris, PADAHAL gap_audit_log historis (Bagian 112) menunjukkan gap pernah terjadi 4x. Errornya ketutup try-catch PER-TENANT di checkGaps() (baris ~107-111, `catch(err){console.error(...)}`), gak keliatan sebagai crash.
+
+**DAMPAK LEBIH SERIUS dari dugaan awal:** `withTenant()` di db.js TRANSAKSIONAL (BEGIN/COMMIT/ROLLBACK, dikonfirmasi baris 33-41). Karena UPDATE gap_status dan INSERT event ada di transaksi yang SAMA, kalau INSERT gagal maka SELURUH transaksi ROLLBACK -- termasuk UPDATE gap_status='ESCALATED' yang seharusnya berhasil. Artinya **fitur eskalasi gap otomatis 100% diam-diam TIDAK PERNAH benar-benar berfungsi**, meski kode kelihatan seperti sudah menghandle-nya.
+
+manuallyResolveGap() (jalur gap.resolved) kena bug sama persis, TAPI dikonfirmasi via `grep -rn "manuallyResolveGap"` -- fungsi ini cuma di-export, TIDAK ADA satupun endpoint di server.js yang memanggilnya. Jadi ini dead code, bug laten tapi belum berdampak nyata.
+
+**Dampak nyata SEKARANG:** NOL. Dicek `SELECT * FROM production_jobs WHERE gap_status IN ('OPEN','RECOVERING','ESCALATED')` -- kosong, semua job CLOSED. Tapi ini P0 nyata untuk ke depan: begitu ada job produksi asli yang gap lama, eskalasi otomatis gak akan pernah aktif.
+
+**P0-BARU-2: job_locks race condition -- dikonfirmasi struktur + kode.**
+Index live: `UNIQUE(tenant_id, production_job_id, released_at)` -- BUKAN partial unique index. `released_at` nullable (dikonfirmasi). Kode acquire lock (server.js baris ~383-419) pakai pola SELECT active lock dulu baru INSERT, TANPA FOR UPDATE atau proteksi atomic. Kode sendiri PUNYA KOMENTAR yang mengakui masalah ini ("unique constraint TIDAK cukup buat ini") tapi solusi yang dipilih (cek eksplisit di app-level) TETAP TIDAK menutup celah race condition -- 2 request bersamaan masih bisa lolos SELECT bersamaan sebelum salah satu sempat INSERT. Solusi sebenarnya butuh partial unique index `WHERE released_at IS NULL` di level DB, bukan app-level check.
+
+**BUG BARU (di luar 17 poin audit ChatGPT): pesan error mediator gak sinkron sama logic authorization.**
+server.js baris 262-263: endpoint assign mediator pakai `isPrivileged()` (cek role IN admin,owner -- baris 82-84), TAPI pesan error di baris 263 bilang "hanya owner yang bisa menunjuk mediator" -- TIDAK SESUAI logic aslinya yang sebenarnya mengizinkan admin juga. Kalau desain bisnis memang "owner+admin boleh" (konsisten sama pola override_admin_pin di job_locks baris ~383, dan owner-resolve Bagian 93 yang eksplisit izinkan admin), maka ini cuma bug pesan/dokumentasi -- TAPI tetap harus diperbaiki karena bisa bikin bingung staff/audit di kemudian hari. Butuh keputusan eksplisit dari Teja: perbaiki pesannya (admin memang boleh), atau perbaiki logic-nya (owner only)?
+
+### Tabel ringkas 17 poin (semua diverifikasi ke sumber asli):
+
+| # | Klaim | Status | Sumber verifikasi |
+|---|---|---|---|
+| 1 | job_locks race condition | VALID | pg_indexes + server.js baris 383-419 |
+| 2 | Worker bypass allocator | VALID, lebih parah | worker.js + struktur tabel + query count |
+| 3 | BUNDLE_ALLOCATION 501 | VALID | ingestion.js baris 115-118 |
+| 4 | CORS belum ada | VALID | grep server.js (kosong) |
+| 5 | Vercel bukan aplikasi | VALID | Vercel MCP get_project: live=false, framework=null |
+| 6 | Event chain lebih baik | VALID | production_events + production_jobs live |
+| 7 | Event immutability | VALID | pg_trigger (2 trigger aktif) |
+| 8 | Security Advisor bersih | VALID | get_advisors security: lints=[] |
+| 9 | RLS performance warning | VALID | get_advisors performance (dikenal sejak Bagian 107) |
+| 10 | FK tanpa index | VALID | get_advisors performance (dikenal) |
+| 11 | Schema reproducibility | VALID | db/ cuma 1 file statis vs 45 migration live |
+| 12 | Session in-memory | VALID | grep server.js (Map()) |
+| 13 | Backend masih HTTP | **SALAH/BASI** | curl https berhasil, nginx config SSL aktif (Bagian 99-100) |
+| 14 | PIN lockout belum ada | VALID | grep server.js (kosong) |
+| 15 | Test suite lemah | VALID | package.json scripts.test |
+| 16 | Audit trail admin | Belum dicek kode (konsisten Bagian 109 #4) | - |
+| 17 | Monitoring/alerting | Belum dicek kode (konsisten Bagian 109 #3) | - |
+
+**Pelajaran penting:** audit eksternal ronde 2 ini jauh lebih akurat dari yang pertama (Bagian 105) DAN menemukan 1 hal yang audit pertama TIDAK temukan (worker bypass allocator) -- bukti konkret kenapa audit berlapis (Bagian 106) bernilai, tapi verifikasi manual TETAP wajib karena tetap ada 1 poin yang basi/salah (klaim HTTPS) yang kalau diterima mentah akan mengarahkan sesi berikutnya kerja ulang sesuatu yang sudah selesai.
+
+**Status: VERIFIKASI SELESAI TUNTAS. BELUM ADA PERBAIKAN KODE APAPUN dieksekusi di bagian ini -- murni fase investigasi/konfirmasi.**
+
+**Next steps Bagian 119 (urutan prioritas, didiskusikan dengan Teja di sesi berikutnya):**
+[ ] P0-BARU-1: Perbaiki worker.js -- semua event (termasuk gap.escalated/gap.resolved) WAJIB lewat assignVersionAndStoreInTx() seperti alur normal (Bagian 110), bukan INSERT langsung
+[ ] P0-BARU-2: Tambah partial unique index job_locks: CREATE UNIQUE INDEX ... ON job_locks(tenant_id, production_job_id) WHERE released_at IS NULL
+[ ] P0-6 lama: schema/migration reproducibility -- regenerate dari live database atau bikin folder migration history di repo
+[ ] Perbaiki pesan error mediator (baris 263) -- putuskan dulu sama Teja: admin boleh (perbaiki pesan) atau owner-only (perbaiki logic)?
+[ ] CORS (next step Bagian 118, belum berubah)
+[ ] P1-1 session ke Redis, PIN progressive lockout, test suite CI gate -- prioritas menyusul setelah 2 P0-BARU di atas
+[ ] #16/#17 (audit trail admin, monitoring) -- belum diverifikasi kodenya, masih asumsi dari Bagian 109
