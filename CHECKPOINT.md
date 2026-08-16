@@ -815,3 +815,122 @@ Next steps bagian 107:
     ditunda sampai mendekati onboarding tenant nyata / data mulai membesar
 [ ] Jalankan get_advisors (security + performance) secara rutin setiap habis
     ada perubahan DDL, bukan cuma sekali di sesi ini
+===================================================================
+108. Lapis 2 keamanan: CodeQL + Dependabot aktif, SSRF alert #2 dianalisis & diperbaiki (16 Agustus 2026)
+===================================================================
+Konteks: Lanjutan Bagian 106-107 (rencana audit keamanan berlapis). Sesi ini
+mengeksekusi 2 tools otomatis tambahan (Lapis 2) yang belum dijalankan:
+CodeQL (GitHub native, mekanis, beda karakter dari LLM chatbot) dan Dependabot.
+
+**Setup yang dieksekusi:**
+- Workflow `.github/workflows/codeql.yml` dibuat via VPS (bukan lewat GitHub UI),
+  push sempat ditolak karena PAT lama belum punya scope `workflow` -- token
+  `vps-fashion-platform-checkpoint` di-regenerate 2x: pertama tambah `workflow`,
+  kedua tambah `read:org` (dibutuhkan `gh` CLI). Scope final: repo, workflow,
+  read:org. Expiry token baru: 14 November 2026 (koreksi dari catatan lama
+  "awal November" di bagian sebelumnya).
+- GitHub CLI (`gh`) diinstall di VPS, login via token, dipakai untuk tarik
+  daftar code scanning alerts langsung ke terminal (lebih efisien dari
+  scroll UI GitHub di HP).
+- Dependabot alerts diaktifkan (Settings -> Advanced Security). Sengaja
+  TIDAK mengaktifkan Dependabot security updates/version updates (auto-PR)
+  -- alert dulu, belum siap auto-update dependency.
+- CodeQL scan pertama: 27 alert (1 Critical, 25 High, 1 Medium).
+
+**Ringkasan 27 alert (belum semua direview, urutan prioritas ke depan):**
+- 1 Critical: `js/request-forgery` (SSRF) di server.js:863 -- SUDAH DIANALISIS
+  & DIPERBAIKI (lihat di bawah).
+- 23 High: `js/missing-rate-limiting` tersebar di server.js -- BELUM
+  direview satu-satu. Dugaan awal (belum diverifikasi): rule ini terkenal
+  noisy, kemungkinan sebagian besar overlap dengan endpoint yang levelnya
+  beda-beda risiko (bukan berarti 23 alert = 23 lubang nyata).
+- 2 High lain: `js/xss-through-dom` (scanner.html:1353), `js/clear-text-storage-of-sensitive-data`
+  (scanner.html:1137) -- BELUM direview. Catatan: scanner.html sudah lama
+  tercatat "belum sinkron, nunggu rombak total" (next steps lama Bagian 5)
+  -- kemungkinan sebagian alert ini otomatis hilang kalau frontend dirombak,
+  bukan ditambal manual sekarang.
+- 1 Medium: `js/functionality-from-untrusted-source` (scanner.html:7) --
+  BELUM direview.
+
+**SSRF alert #2 -- dianalisis tuntas & diperbaiki:**
+
+Rasa yang dipenuhi: Rasa Ketelitian (klaim CodeQL tidak diterima mentah
+maupun ditolak mentah -- dicek ke kode asli, struktur tabel via Supabase MCP,
+dan alur error-handling sebelum disimpulkan) dan Rasa Keamanan (defense-in-depth
+ditambahkan meski risiko aktual sudah rendah, bukan menunggu sampai jadi masalah).
+
+Lokasi: endpoint `POST /v1/photos` (server.js), `production_job_id` dari
+body request dipakai membentuk `storagePath` yang masuk ke URL
+`fetch(SUPABASE_URL + "/storage/v1/object/stage-photos/" + storagePath)`.
+
+Analisis: CodeQL benar secara pola (input user masuk ke URL outgoing request
+tanpa validasi eksplisit), TAPI risiko aktual rendah karena 2 proteksi
+sudah ada secara tidak sengaja: (1) hostname (`SUPABASE_URL`) fix dari env
+var, sama sekali tidak bisa dikontrol user -- ini BUKAN SSRF klasik ke
+server sembarang; (2) kolom `production_jobs.id` bertipe `uuid` di database
+(dikonfirmasi via Supabase MCP list_tables), jadi input yang bukan format
+UUID valid (misal path traversal `../../`) otomatis ditolak Postgres SEBELUM
+sampai baris yang membentuk URL, dan error itu ketangkep rapi oleh
+`catch (err)` yang sudah ada (return 500 generik, tidak bocorkan detail,
+`client.release()` tetap jalan di `finally`). `stage` juga sudah divalidasi
+whitelist dari `pipeline_snapshot` job sebelum baris SSRF.
+
+Verdict: risiko eksploitasi sangat rendah untuk kondisi kode SEKARANG, tapi
+proteksinya "kebetulan" (bergantung ke tipe kolom database), bukan validasi
+yang disengaja di level aplikasi -- kalau kolom pernah diubah ke `text` di
+migration masa depan, celah ini beneran kebuka tanpa ada yang sadar. Diputuskan
+tetap diperbaiki sebagai defense-in-depth, bukan didismiss sebagai false positive.
+
+Perbaikan yang dieksekusi (server.js, setelah baris validasi
+"production_job_id, stage, dan photo_base64 wajib diisi", commit a6426eb):
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+if (!UUID_REGEX.test(production_job_id)) {
+  return res.status(400).json({ error: "production_job_id harus berupa UUID yang valid" });
+}
+
+Testing (curl, staff QC Demo, via gh CLI + VPS langsung, bukan HP):
+1. production_job_id: "../../etc/passwd" -> 400, pesan validasi UUID baru
+   muncul benar. LULUS.
+2. production_job_id UUID valid (job demo existing) -> 200, foto ter-insert
+   normal, tidak ada regresi. LULUS.
+
+Verifikasi sebelum commit: git diff HEAD -- server.js dicek dulu (kebiasaan
+Bagian 103) -- cuma 4 baris insertion, tidak ada yang nyangkut tak terduga.
+
+**Catatan teknis untuk sesi berikutnya:**
+- Command git remote set-url sempat dijalankan dengan teks LITERAL
+  "TOKEN_BARU"/"TOKEN_ASLI" (placeholder tidak diganti token asli sungguhan)
+  -- menyebabkan push gagal minta password 2x berturut-turut. Pelajaran:
+  kalau instruksi mengandung placeholder dalam command git/curl, WAJIB
+  diganti dulu dengan nilai asli sebelum dijalankan, jangan disalin
+  mentah-mentah. Sudah diperbaiki pakai gh auth token untuk ambil token
+  aktif dari sesi gh yang sudah login.
+- Heredoc Python multi-baris (python3 << 'PYEOF') sempat gagal dieksekusi
+  karena masalah paste di terminal HP (teks kepotong/kacau) -- untuk edit
+  kecil (beberapa baris), command awk satu-baris terbukti lebih tahan
+  terhadap masalah paste di HP dibanding heredoc multi-baris. Pertimbangkan
+  ini sebagai alternatif SOP heredoc untuk sesi yang dikerjakan dari HP.
+- PIN staff testing (1234, tenant demo) ada di CHECKPOINT_LOCAL.md, bukan
+  di CHECKPOINT.md ini -- sengaja tidak dipindah demi keamanan, next session
+  cek CHECKPOINT_LOCAL.md kalau butuh testing curl lagi.
+
+**Status: SSRF alert #2 SELESAI & TERUJI.** 26 alert CodeQL sisanya (23
+rate-limiting, 2 scanner.html, 1 medium) BELUM DIREVIEW -- next steps.
+
+**Next steps Bagian 108:**
+[ ] Review 23 alert "Missing rate limiting" -- kelompokkan per endpoint,
+    verifikasi mana yang beneran butuh rate limit tambahan vs mana yang
+    noise/duplikat pola (endpoint login sudah punya rate limit PIN, cek
+    endpoint lain satu-satu)
+[ ] Review 2 alert scanner.html (XSS DOM, clear-text storage) -- putuskan
+    apakah ditambal sekarang atau ditunda sampai rombak scanner.html total
+[ ] Review 1 alert medium (functionality-from-untrusted-source, scanner.html:7)
+[ ] Cek ulang CodeQL scan setelah commit a6426eb -- pastikan alert #2 (SSRF)
+    otomatis hilang/berubah status di GitHub setelah fix, atau perlu
+    dismiss manual dengan alasan "won't fix" + catatan mitigasi
+[ ] Lapis 2 belum tuntas dari Bagian 106: k6 load/race-condition testing
+    untuk endpoint confirm (P0-2 dari audit ChatGPT Bagian 105) masih
+    belum dieksekusi
+[ ] Pertimbangkan cross-check manual ke 1 AI lain (Gemini/Grok, copy-paste
+    manual karena tidak ada MCP connector ke model AI lain) sebagai lapis
+    tambahan -- belum dieksekusi, masih rencana
