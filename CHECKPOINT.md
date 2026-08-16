@@ -548,3 +548,82 @@ server.js baris 262-263: endpoint assign mediator pakai `isPrivileged()` (cek ro
 [ ] CORS (next step Bagian 118, belum berubah)
 [ ] P1-1 session ke Redis, PIN progressive lockout, test suite CI gate -- prioritas menyusul setelah 2 P0-BARU di atas
 [ ] #16/#17 (audit trail admin, monitoring) -- belum diverifikasi kodenya, masih asumsi dari Bagian 109
+
+## 120. P0-BARU-1: worker.js gap-monitor bypass event allocator -- FIXED & TERUJI (17 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Keamanan (transaksi gap.escalated/gap.resolved
+sekarang benar-benar atomic dengan UPDATE gap_status -- tidak ada lagi
+rollback diam-diam yang bikin fitur "kelihatan" jalan padahal tidak) dan
+Rasa Ketelitian (testing end-to-end di VPS pakai job demo, bukan cuma baca
+kode dan asumsi benar -- termasuk nemuin dan verifikasi efek samping tak
+terduga dari cara setup test-nya sendiri sebelum dianggap selesai).
+
+**Konteks:** temuan P0-BARU-1 dari audit ChatGPT ronde 2 (Bagian 119) --
+worker.js INSERT langsung ke production_events untuk event gap.escalated
+(baris 69-70 lama) dan gap.resolved (baris 152-153 lama) TANPA mengisi
+sequence_version (NOT NULL, tanpa default). INSERT selalu gagal constraint
+violation, ketutup try-catch per-tenant jadi tidak keliatan sebagai crash.
+Karena withTenant() transaksional, gagalnya INSERT bikin SELURUH transaksi
+ROLLBACK -- termasuk UPDATE gap_status='ESCALATED' yang seharusnya berhasil.
+Eskalasi gap otomatis 100% diam-diam tidak pernah berfungsi sejak awal.
+
+**Perbaikan (commit 2baf322):** kedua titik INSERT diganti manggil
+assignVersionAndStoreInTx() (versioning.js) -- pola yang sama persis dipakai
+endpoint confirm submission (server.js baris 793). Fungsi ini yang benar
+mengisi sequence_version (row lock FOR UPDATE ke production_jobs, ambil
+next_sequence_version), insert event, update next_sequence_version, dan
+apply ke state (tryApplyToState) -- semua dalam transaksi yang sama.
+Tambahan require("./versioning") di baris 2 worker.js.
+
+**Testing (VPS, job demo 25352257-..., 2 skenario, semua LULUS):**
+1. gap.escalated: job di-set manual RECOVERING + insert event gap.opened
+   palsu dengan created_at mundur 10 menit (lewat ambang GAP_THRESHOLD +
+   GRACE_PERIOD = 360 detik) -> tunggu 1 tick checkGaps() (interval 10
+   detik) -> job otomatis ESCALATED, event gap.escalated ter-insert dengan
+   sequence_version terisi (19), next_sequence_version ikut naik. LULUS.
+2. gap.resolved (manuallyResolveGap, dead code -- tidak ada endpoint yang
+   panggil, tapi tetap diverifikasi karena bug sama persis): dipanggil
+   langsung lewat script node sekali-pakai -> {resolved: true}, event
+   gap.resolved ter-insert dengan sequence_version terisi (20). LULUS.
+
+**Efek samping tak terduga saat testing (ditelusuri sampai akar penyebab,
+bukan dibiarkan karena "bukan tujuan sesi ini" -- konsisten Bagian 116):**
+Karena setup skenario 1 pakai raw INSERT manual ke production_events (bukan
+lewat tryApplyToState), current_version job jadi tidak sinkron dengan
+next_sequence_version/sequence_version event yang baru. Event gap.escalated
+dan gap.resolved yang barusan berhasil di-insert (via assignVersionAndStoreInTx
+yang sudah benar) malah ke-BUFFER ke pending_events (bukan hilang/korup) --
+tryApplyToState() mendeteksi "out-of-order" dan openGapIfNeeded() otomatis
+nyetel ulang gap_status='OPEN' sebagai bentuk kehati-hatian sistem (dikonfirmasi
+lewat gap_audit_log, dan ternyata sudah pernah kejadian juga tanggal 7 & 9
+Agustus dari testing-testing lama -- bukan pertama kali). Ini PERILAKU SAH
+dari mekanisme gap-detection/buffer/chain-apply yang sudah ada sebelumnya
+(stateLayer.js), bukan bug baru dari perbaikan P0-BARU-1 -- justru jadi
+bukti tambahan bahwa mekanisme itu bekerja sesuai desain (menangkap
+inkonsistensi, bukan korupsi data diam-diam).
+
+**Cleanup:** dipanggil tryApplyToState() manual untuk event sequence_version
+18 (yang tadinya di-insert raw tanpa lewat state layer) -> chainApplyFromBuffer()
+otomatis meneruskan 19 dan 20 secara rekursif. Hasil akhir: current_version=20,
+next_sequence_version=20 (sinkron), gap_status=CLOSED (disetel otomatis oleh
+closeGapIfOpen(), bukan ditimpa manual), pending_events kosong (0 rows).
+Job demo kembali ke state bersih, siap dipakai testing berikutnya.
+
+**Catatan untuk testing gap serupa di masa depan:** JANGAN insert event
+manual ke production_events dengan raw SQL tanpa lewat assignVersionAndStoreInTx/
+tryApplyToState -- akan memicu ketidaksinkronan current_version vs
+sequence_version dan event ter-buffer sampai gap tertutup manual (seperti
+yang terjadi sesi ini). Kalau perlu simulasi gap lagi, pertimbangkan bikin
+helper script test yang lewat jalur resmi dari awal.
+
+**Status: P0-BARU-1 SELESAI & TERUJI.**
+
+**Next steps Bagian 120 (urutan belum berubah dari Bagian 119, P0-BARU-1 sudah dicoret):**
+[ ] P0-BARU-2: partial unique index job_locks (CREATE UNIQUE INDEX ...
+    ON job_locks(tenant_id, production_job_id) WHERE released_at IS NULL)
+[ ] P0-6 lama: schema/migration reproducibility
+[ ] Perbaiki pesan error mediator (baris 263) -- keputusan Teja: admin
+    boleh (perbaiki pesan) atau owner-only (perbaiki logic)?
+[ ] CORS (Bagian 118, desain sudah disepakati, belum dieksekusi)
+[ ] P1-1 session ke Redis, PIN progressive lockout, test suite CI gate
+[ ] #16/#17 Bagian 119 (audit trail admin, monitoring) -- belum diverifikasi kodenya
