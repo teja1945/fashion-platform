@@ -1454,3 +1454,30 @@ sama, lihat Bagian 116.
 **Status: SELESAI & TERUJI.** Ini menutup gap yang ditemukan di tengah testing P1-3 (Bagian 115) -- bukan bagian dari 15 temuan audit ChatGPT (Bagian 105), melainkan temuan operasional baru yang muncul dari testing manual yang teliti.
 
 **Next steps Bagian 116:** tidak ada next step baru dari perbaikan ini -- next steps aktif tetap seperti yang tercatat di Bagian 115 (P1-1 session Redis, P0-6 schema drift, k6 load testing, daftar terbuka Bagian 109, DeprecationWarning client.query()).
+
+## 117. Tenant Isolation Testing -- Bagian 109 poin #10 -- SELESAI & TERUJI (16 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Keamanan (isolasi antar tenant -- risiko paling kritis untuk SaaS multi-tenant -- dibuktikan langsung dengan data nyata, bukan diasumsikan aman dari baca kode) dan Rasa Ketelitian (2 lapis proteksi dites terpisah -- level API/subdomain DAN level database/RLS -- bukan cuma 1 lapis dianggap mewakili semua).
+
+**Konteks:** poin #10 dari daftar terbuka Bagian 109 ("Tenant isolation testing... Belum pernah ada test eksplisit"). Dites sesi ini pakai 2 tenant demo yang sudah ada (Demo Tenant/subdomain "demo", Demo Tenant Kedua/subdomain "demo2").
+
+**Keputusan desain saat testing:** sempat dipertimbangkan bikin endpoint GET-by-ID baru khusus buat testing yang lebih detail, TAPI diputuskan TIDAK -- menambah endpoint baru cuma untuk keperluan tes menambah permukaan yang perlu direview keamanannya sendiri (sejalan Bagian 101, tidak bikin kode baru tanpa rencana matang). Sebagai gantinya, RLS (mekanisme yang otomatis berlaku di SEMUA query database, tidak tergantung endpoint mana) dites LANGSUNG di level database via psql dengan role app_user (persis role yang dipakai server.js), tanpa perlu endpoint tambahan apapun.
+
+**Testing (5 skenario, semua LULUS):**
+
+Level API (lewat endpoint yang sudah ada):
+1. Baseline -- API key tenant "demo" + subdomain "demo" ke GET /v1/orders -> 200, cuma menampilkan order milik "demo" sendiri (order_id a6f807b1...), tidak ada bocoran data "demo2" walau "demo2" juga punya data. LULUS.
+2. Silang -- API key tenant "demo2" + subdomain "demo" ke GET /v1/staff/list -> 401 "API key tidak valid." LULUS.
+3. Silang balik -- API key tenant "demo" + subdomain "demo2" ke GET /v1/staff/list -> 401 "API key tidak valid." LULUS.
+
+Level Database (RLS langsung, role app_user, tanpa lewat endpoint apapun):
+4. Konteks app.tenant_id di-SET ke "demo" (8ae20661...), query SELECT order dengan id milik "demo2" (2c16b932-7b2e-4f46-bdc5-3b93db6e2ce1, ID valid & benar-benar ada di database) -> 0 rows. RLS menyembunyikan total, seolah data itu tidak pernah ada. LULUS -- ini bukti paling kuat karena ID-nya presisi dan valid, bukan sekadar dicoba sembarang.
+5. Pembanding -- konteks app.tenant_id di-SET ke "demo2" (f06b9548...), query SELECT dengan id yang sama persis -> 1 row, tampil normal. LULUS -- konfirmasi RLS benar-benar MEMFILTER berdasarkan tenant yang tepat, bukan menolak semua request tanpa pandang bulu (bukan bug fail-closed total yang kebetulan terlihat aman).
+
+**Kendala teknis saat testing:** psql manual awalnya gagal 2x -- pertama karena `$DATABASE_URL` belum di-load ke shell (perlu `source .env` dengan `set -a`/`set +a`, bukan `cut -d=` manual yang berisiko salah potong kalau connection string punya karakter `=` di dalamnya), kedua karena tabel `tenants` sendiri memang tidak bisa di-SELECT oleh app_user (sesuai catatan lama Bagian 4) sehingga sempat dicoba lewat Supabase MCP `execute_sql` untuk lihat daftar tenant -- tapi `SET ROLE app_user` ditolak MCP (role MCP beda dari role backend), jadi query RLS-nya balik dijalankan via psql VPS yang memang sudah connect sebagai app_user secara native lewat DATABASE_URL.
+
+**Status: Tenant Isolation Testing SELESAI & TERUJI, poin #10 Bagian 109 RESMI TERTUTUP.** Proteksi terbukti berlapis dan konsisten di 2 level berbeda (API key/subdomain, dan RLS database) -- bukan cuma 1 lapis yang kebetulan menutupi celah di lapis lain.
+
+**Catatan batasan testing (jujur dicatat, bukan diklaim tuntas 100%):** API yang ada sekarang cuma punya endpoint list (GET /v1/orders, /v1/staff/list, /v1/notifications), tidak ada GET-by-ID -- jadi skenario "API key & subdomain sah untuk tenant A, tapi resource ID yang diminta lewat endpoint milik tenant B" belum bisa dites lewat jalur HTTP asli. Skenario itu digantikan test level database (test 4-5 di atas) yang menguji mekanisme yang sama (RLS) secara langsung -- risikonya dianggap tertutup, tapi kalau nanti ada endpoint GET-by-ID baru, sebaiknya diulang juga test serupa lewat HTTP untuk kelengkapan.
+
+**Next steps Bagian 117:** tidak ada next step baru dari testing ini. Next steps aktif tetap seperti Bagian 115/116 (P1-1 session Redis, P0-6 schema drift, k6 load testing, sisa daftar terbuka Bagian 109 poin #1,3,4,5,7,8,11, DeprecationWarning client.query()).
