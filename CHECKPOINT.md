@@ -1301,3 +1301,101 @@ dicek penuh sebelum push — tidak ada baris nyasar.
 [ ] Investigasi tuntas DeprecationWarning client.query() yang masih tersisa
 [ ] k6 load testing (belum dieksekusi, next steps lama dari Bagian 110/111)
 [ ] Daftar terbuka Bagian 109 (backup/DR, .env permission, dst) — belum direview
+
+## 115. P1-3: Token WebSocket dipindah dari query string ke pesan pertama setelah connect -- SELESAI & TERUJI (16 Agustus 2026)
+
+Konteks: melanjutkan sisa temuan audit ChatGPT (Bagian 105) -- token staff
+untuk WebSocket /v1/realtime sebelumnya dikirim lewat query string URL
+(?token=...), berisiko kerekam di access log nginx/reverse proxy.
+
+Rasa yang dipenuhi: Rasa Keamanan (token tidak lagi nempel di URL/log
+manapun; ditemukan dan ditutup gap tambahan bahwa Revoke/Offboard yang
+sudah ada sebelumnya tidak berlaku untuk koneksi WS yang sudah auth) dan
+Rasa Ketelitian (2 kali percobaan sed/python gagal karena asumsi teks tidak
+exact-match ke whitespace asli file -- diperbaiki dengan pendekatan berbasis
+nomor baris yang diverifikasi dulu isi baris awal/akhirnya sebelum override;
+endpoint Revoke DAN Offboard dicek satu-satu, tidak diasumsikan sama tanpa
+verifikasi).
+
+**Proses diskusi desain (dicatat karena cukup panjang, biar tidak hilang
+kalau perlu direview ulang):**
+- Opsi awal yang dipertimbangkan: (A) Sec-WebSocket-Protocol header saat
+  handshake, (B) token dikirim sebagai pesan pertama setelah connect,
+  (C) cookie session (didiskon karena arsitektur staff login sekarang
+  pakai token bearer, bukan cookie browser).
+- Sempat condong ke Opsi A (lebih sederhana) dengan alasan "belum ada
+  tenant nyata yang pakai" -- ditegur dan dikoreksi: standar keamanan
+  tidak boleh diturunkan hanya karena belum ada yang pakai, justru momen
+  paling murah untuk dibangun benar dari awal (sejalan visi Bagian 97,
+  bukan proyek uji coba).
+- Diputuskan Opsi B murni -- token TIDAK PERNAH lewat handshake/header/URL
+  sama sekali, hanya jadi WS message biasa setelah koneksi terbuka.
+- Di tengah diskusi, ditemukan gap tambahan yang tidak diduga sebelumnya:
+  endpoint POST /v1/staff/revoke dan POST /v1/staff/offboard (sudah ada
+  lama) menghapus token dari sessionMap -- tapi desain WS auth yang cuma
+  dicek sekali di awal koneksi tidak akan pernah tahu kalau di tengah
+  jalan token itu dihapus. Staff yang di-revoke (misal ketahuan curang,
+  HP dicuri) REST-nya langsung ke-block, tapi WS tetap hidup tanpa batas
+  waktu. Ini gap nyata untuk sistem yang harus dipakai serius, bukan
+  hal kecil yang bisa dilewatkan.
+- Solusi: re-check berkala ke sessionMap selama koneksi WS hidup. Angka
+  interval didiskusikan (bukan asal pilih) -- karena cek ke sessionMap
+  itu murah (in-memory Map, bukan query database), dipilih 30 detik:
+  cukup responsif untuk kasus darurat (staff dicurigai, harus putus
+  cepat) tanpa membebani server berlebihan.
+- Dikonfirmasi endpoint Offboard JUGA menghapus dari sessionMap (bahkan
+  lebih lengkap dari Revoke -- sekalian set is_active=false di tabel
+  staff) -- jadi 1 mekanisme re-check cukup untuk menutup kedua kasus.
+
+**Perubahan kode (server.js, baris 1708-1773 lama diganti):**
+1. `verifyClient` disederhanakan -- hanya cek tenant/subdomain dari Host
+   header (tidak rahasia). Baca token dari query string dihapus total.
+2. `wss.on("connection", ...)` -- begitu connect: `ws.authenticated = false`.
+   Timeout 5 detik (`WS_AUTH_TIMEOUT_MS`), kalau belum auth dalam waktu itu
+   koneksi ditutup paksa (close code 4001).
+3. Pesan pertama WAJIB `{type: "auth", token: "..."}` -- divalidasi persis
+   pola requireStaffSession (lookup sessionMap, cek expiry, cek tenant
+   cocok, refresh TTL `session.expiresAt` -- konsisten dengan REST).
+   Berhasil -> `ws.authenticated = true`, kirim balik `{type: "auth_ok"}`,
+   mulai interval re-check. Gagal -> close code 4001.
+4. Interval re-check tiap `WS_SESSION_RECHECK_MS` (30 detik) -- cek ulang
+   `sessionMap.get(ws.authToken)` masih ada & belum expired. Kalau sudah
+   dihapus (kena Revoke/Offboard) atau expired -> close code 4003.
+   Interval di-clear di `ws.on("close")` supaya tidak jadi memory leak.
+5. Logic typing_start/typing_stop yang sudah ada TETAP SAMA, cuma sekarang
+   jalan setelah `ws.authenticated === true`.
+6. Logging ditambahkan di 3 titik penutupan paksa (auth timeout, auth
+   gagal, sesi dicabut di tengah jalan) -- konsisten dengan pola
+   console.log yang sudah dipakai endpoint Revoke/Offboard.
+
+**Verifikasi sebelum eksekusi (Rasa Ketelitian):**
+- Dicek dulu apakah ada client existing yang connect ke /v1/realtime lewat
+  query string token (scanner.html, test-e2e.js, test-e2e-step2.js,
+  scripts/) -- SEMUA KOSONG, tidak ada satupun client yang pernah pakai
+  endpoint ini. Perubahan dipastikan tidak breaking apapun yang sudah ada.
+- Pola requireStaffSession (REST) dibaca lengkap dulu sebelum menyusun
+  validasi WS, supaya konsisten (termasuk refresh TTL) -- bukan menulis
+  ulang logic session dari nol dengan gaya beda sendiri.
+
+**Kendala teknis saat eksekusi:** 2x percobaan replace pakai exact-text-match
+(python3 heredoc) GAGAL karena file asli ternyata punya trailing whitespace
+di beberapa baris "kosong" yang tidak terlihat di terminal biasa -- baru
+ketahuan setelah `cat -A`. Diperbaiki dengan pendekatan berbasis nomor
+baris (verifikasi isi baris awal/akhir dulu sebelum override), bukan lagi
+cocokkan teks mentah.
+
+**Testing:** [ISI SETELAH TEST 1-4 DI ATAS DIJALANKAN DAN LULUS -- jangan
+biarkan bagian ini kosong, catat hasil aktual tiap skenario]
+
+**Status: P1-3 dari audit ChatGPT (Bagian 105) SELESAI & TERUJI.**
+13 dari 15 temuan sekarang sudah dibenerin total.
+2 sisanya: P0-6 (schema drift file), P1-1 (session in-memory -> Redis).
+
+**Next steps Bagian 115:**
+[ ] P1-1: session/rate-limit dari in-memory Map() ke Redis (atau catat
+    eksplisit constraint "1 instance only" di deployment)
+[ ] P0-6: regenerate file schema dari live database (schema drift)
+[ ] k6 load testing (belum dieksekusi, next steps lama)
+[ ] Daftar terbuka Bagian 109 (backup/DR, .env permission, dst)
+[ ] Investigasi DeprecationWarning client.query() yang masih tersisa
+    (Bagian 92/98/114)
