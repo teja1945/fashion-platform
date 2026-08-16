@@ -730,3 +730,49 @@ Next steps bagian 105:
 [ ] Vercel: baru relevan setelah ada frontend beneran untuk di-deploy
 [ ] security-definer functions: pertimbangkan search_path=''
 [ ] Update EVENT_CONTRACTS.md supaya sinkron dengan event_type aktual di kode
+
+===================================================================
+106. Rencana Audit Keamanan Manusia (15 Agustus 2026)
+===================================================================
+Konteks: Setelah audit ChatGPT (bagian 105) diverifikasi 15/15 valid, muncul
+kesadaran penting: audit AI-ke-AI (Claude bikin, ChatGPT/Claude ngecek) punya
+blind spot struktural -- kemungkinan besar sama-sama miss celah yang levelnya
+"logic bisnis"/skenario serangan kreatif, karena keduanya mikir dari pola
+umum yang sudah dikenal, bukan dari pengalaman menyerang sistem beneran.
+
+Rencana berlapis (bukan pilih 1, tapi bertahap):
+
+Lapis 1 -- Teja sendiri coba manual (gratis, bisa mulai sekarang):
+- Login sebagai staff biasa, coba akses endpoint role lain (misal staff jahit
+  coba panggil endpoint confirm yang harusnya khusus QC)
+- Kirim data aneh ke form: angka negatif, field kosong, angka ekstrem besar
+- Coba double-tap submit cepat-cepat buat verifikasi race condition beneran
+  kejadian di endpoint confirm (bukan cuma dugaan dari baca kode)
+- Baca tiap endpoint sambil mikir "kalau gue staff nakal, gimana cara akalin ini"
+Batasan yang disadari: Teja sendiri yang bikin/setuju desain sistem, jadi
+punya blind spot yang sama soal "cara nyerang sistem buatan sendiri" --
+lapis ini bagus tapi tidak cukup sebagai lapis terakhir.
+
+Lapis 2 -- Tools otomatis (murah/gratis, belum dieksekusi):
+- Supabase Security Advisor (Splinter, built-in lewat MCP get_advisors) --
+  cek RLS/misconfigurasi sistematis
+- k6 (load/concurrency testing, open-source) -- nembak endpoint confirm
+  dengan request paralel buat buktikan race condition beneran kejadian
+- Snyk/Socket.dev -- dependency scanning lebih dalam dari npm audit biasa
+
+Lapis 3 -- Audit manusia independen beneran (WAJIB sebelum ada tenant nyata
+pakai, belum dieksekusi, belum dianggarkan):
+- Freelance security researcher/pentester (platform seperti HackenProof/
+  Bugcrowd, atau developer senior yang dipercaya) -- orang yang benar-benar
+  mencoba menyerang sistem (bukan cuma baca kode), untuk scope kecil (1
+  backend, beberapa endpoint kritis: auth, stage-submissions, discrepancy)
+- Ini lapis yang tidak tergantikan AI manapun karena tidak punya blind spot
+  yang sama -- prioritas sebelum go-live dengan tenant/customer nyata,
+  bukan sebelum development lanjut.
+
+Next steps bagian 106:
+[ ] Jalankan Supabase Security Advisor (get_advisors) sebagai lapis tambahan
+[ ] Setup k6 basic test untuk endpoint confirm (verifikasi race condition P0-2)
+[ ] Teja coba skenario manual di atas sambil development jalan
+[ ] Anggarkan & cari freelance security researcher SEBELUM onboarding tenant
+    pertama yang bukan demo/testing
