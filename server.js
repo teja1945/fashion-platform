@@ -15,6 +15,7 @@ const { extractSubdomain } = require("./middleware/tenantResolver");
 const rateLimit = require("express-rate-limit");
 
 const app = express();
+app.set("trust proxy", "loopback"); // nginx reverse proxy di localhost yang sama (Bagian 99-100) -- perlu ini biar express-rate-limit (Bagian 111) baca IP client asli, bukan IP nginx
 app.use(express.json({ limit: "10mb" }));
 
 // Rate limiter API level umum (checklist keamanan bagian 6, CodeQL alert
@@ -42,20 +43,36 @@ app.get("/v1/whoami", tenantResolver, (req, res) => {
 });
 
 // =====================================================================
-// API KEY (global untuk semua tenant -- known limitation, lihat
-// CHECKPOINT bagian 13: idealnya per-tenant, belum digarap di pass ini)
+// API KEY per-tenant (P1-2, Bagian 113-114 CHECKPOINT.md) --
+// verifikasi via verify_tenant_api_key(), tidak ada lagi API_KEY global.
 // =====================================================================
-function requireApiKey(req, res, next) {
-  const expected = process.env.API_KEY;
-  if (!expected) {
-    console.error("API_KEY belum di-set di environment.");
-    return res.status(503).json({ error: "server belum dikonfigurasi (API_KEY kosong)" });
+async function requireApiKey(req, res, next) {
+  if (!req.tenantId) {
+    return res.status(500).json({ error: "Konfigurasi route salah: tenant belum teridentifikasi sebelum cek API key." });
   }
-  const provided = req.header("x-api-key");
-  if (!provided || provided !== expected) {
-    return res.status(401).json({ error: "unauthorized" });
+
+  const providedKey = req.header("x-api-key");
+  if (!providedKey) {
+    return res.status(401).json({ error: "API key wajib disertakan." });
   }
-  next();
+
+  try {
+    const isValid = await withTenant(pool, req.tenantId, async (c) => {
+      const r = await c.query(
+        "SELECT verify_tenant_api_key($1, $2) AS valid",
+        [req.tenantId, providedKey]
+      );
+      return r.rows[0]?.valid === true;
+    });
+
+    if (!isValid) {
+      return res.status(401).json({ error: "API key tidak valid." });
+    }
+    next();
+  } catch (err) {
+    console.error("requireApiKey error:", err);
+    res.status(500).json({ error: "Gagal verifikasi API key." });
+  }
 }
 
 // Owner = pemilik tenant, wewenang penuh (setara admin + lebih).
