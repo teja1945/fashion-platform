@@ -1093,3 +1093,49 @@ orphan, P1-5 validasi foto) BELUM dikerjakan.
 [ ] k6 load testing untuk memvalidasi lebih jauh di bawah beban tinggi
     (bukan cuma 2 request manual seperti sesi ini)
 [ ] Sisa 7 temuan kode dari audit ChatGPT (lihat daftar di atas)
+
+===================================================================
+111. Rate limiter global untuk semua /v1/* -- SELESAI & TERUJI (16 Agustus 2026)
+===================================================================
+Konteks: Menuntaskan 23 alert CodeQL "js/missing-rate-limiting" (Bagian 108)
+sekaligus, dan menutup item lama di checklist keamanan Bagian 6 ("Rate
+limiting API level umum, bukan cuma endpoint PIN"). Ditemukan ke-23 alert
+itu BUKAN 23 masalah terpisah -- 1 akar masalah yang sama (tidak ada rate
+limiter global) muncul berulang di tiap endpoint /v1/*.
+
+Rasa yang dipenuhi: Rasa Ketelitian (dicek dulu SEMUA 21 lokasi alert satu-satu
+untuk konfirmasi polanya sama sebelum memutuskan solusi tunggal, bukan
+menambal satu-satu tanpa analisis) dan Rasa Keamanan (endpoint yang
+sebelumnya sama sekali tidak terlindungi -- misal /v1/photos, /v1/mediators,
+semua endpoint discrepancy-cases -- sekarang punya lapis proteksi dasar).
+
+**Perubahan:**
+- Package express-rate-limit terpasang (npm install, 0 vulnerability).
+- Middleware apiRateLimiter dipasang global di app.use("/v1", ...) --
+  300 request/menit per IP, window 60 detik. Angka dipilih longgar sengaja
+  (staff pabrik piece-rate submit berkali-kali cepat), bukan generik
+  langsung pakai default library.
+- TIDAK menggantikan proteksi brute-force PIN yang sudah ada di
+  /v1/staff/login (rateLimitMap, lebih ketat/spesifik) -- ini lapis
+  tambahan yang berlaku ke SEMUA /v1/*, termasuk yang sebelumnya sama
+  sekali tidak punya proteksi apapun.
+
+**Verifikasi:**
+- pm2 restart, error log dikosongkan dan dipantau -- 0 error baru.
+- Header RateLimit-* dicek langsung (bukan cuma percaya library terpasang):
+  RateLimit-Policy: 300;w=60, RateLimit-Remaining berkurang sesuai jumlah
+  request yang sudah dikirim dalam window yang sama -- dikonfirmasi jalan
+  BENERAN menghitung, bukan cuma terpasang tanpa efek.
+
+**Status: SELESAI & TERUJI.** 8 dari 15 temuan sekarang sudah dibenerin
+total (7 dari Bagian 105/107/110 + rate limiter global ini yang sekaligus
+menutup temuan CodeQL terpisah). Sisa next steps: 7 temuan kode ChatGPT
+lainnya (P0-1, P0-5, P0-6, P1-1 s/d P1-5) + 2 alert CodeQL scanner.html
+(XSS, clear-text storage) + 1 alert medium + k6 load testing.
+
+**Next steps Bagian 111:**
+[ ] Cek ulang GitHub code scanning setelah commit ini -- pastikan 23 alert
+    missing-rate-limiting otomatis berubah status "fixed" (CodeQL scan
+    ulang otomatis jalan setelah push, biasanya beberapa menit)
+[ ] 2 alert scanner.html (XSS DOM, clear-text storage) + 1 medium -- masih
+    ditunda sampai rombak frontend total (keputusan lama, belum berubah)
