@@ -621,3 +621,112 @@ Urutan pasti #2-4 masih fleksibel, perlu dikonfirmasi ulang Teja di sesi mendata
 - Konfirmasi PIN ulang sebelum submit final: TIDAK PERLU. Staff sudah login via PIN di awal sesi (token 8 jam) -- meminta PIN lagi tiap submit adalah gesekan berulang yang tidak perlu, terutama untuk staff piece-rate yang submit berkali-kali sehari. Resiko "salah pencet" sudah cukup teredam oleh lapisan lain yang sudah ada: staff hanya bisa submit ke assigned_stage miliknya sendiri, foto bukti wajib (butuh effort, bukan sekadar 1 tap), dan qty yang salah akan tertangkap di titik confirm oleh stage berikutnya sebelum jadi masalah besar.
 
 **Status: KEPUTUSAN DESAIN DISEPAKATI.** Next: susun prompt Stitch untuk layar Lapor Hasil, mengikuti alur wajib foto-dulu-baru-qty (Bagian 102) + istilah dan keputusan PIN di atas.
+
+===================================================================
+105. Audit Eksternal ChatGPT (15 Agustus 2026) — Verifikasi & Perbaikan Sebagian
+===================================================================
+Konteks: User minta ChatGPT audit full backend (GitHub + Supabase live + Vercel).
+Hasil: 15 temuan (6 P0, 6 P1, 3 P2/minor). SEMUA 15 diverifikasi satu-satu
+langsung ke sumber (bukan dipercaya mentah) -- SEMUA TERBUKTI VALID, tidak ada
+yang meleset/lebay dari audit ChatGPT.
+
+P0 (kritis):
+1. Event chain inkonsisten -- sequence_version 10 hilang di production_events,
+   pending_events masih nyangkut sequence 11 (sejak 9 Agustus), tapi
+   production_jobs.gap_status = CLOSED (palsu). HANYA di 1 job testing/demo
+   ("Customer Demo Tenant 1"), bukan data customer nyata. BELUM DIBENERIN.
+2. Race condition endpoint confirm (POST /v1/stage-submissions/:id/confirm) --
+   query SELECT status submission TIDAK pakai FOR UPDATE, beda dari endpoint
+   submit yang sudah benar pakai FOR UPDATE untuk cek foto. BELUM DIBENERIN.
+3. Atomicity QC->event terpisah -- UPDATE stage_quantity_submissions +
+   discrepancy_cases commit duluan, BARU SETELAH ITU ingestEvent() dipanggil
+   di luar transaksi. Kalau ingestEvent() gagal, tetap return HTTP 200 dengan
+   field stage_advance_warning -- submission sudah CONFIRMED tapi stage tidak
+   maju, dan caller mungkin tidak cek field warning itu. BELUM DIBENERIN.
+4. Event store bukan immutable -- app_user punya UPDATE+DELETE ke
+   production_events. SUDAH DIBENERIN: revoke UPDATE/DELETE dari app_user +
+   trigger block_production_events_mutation() yang menolak UPDATE/DELETE
+   apapun di level DB (2 lapis proteksi). Diuji: percobaan UPDATE ditolak
+   trigger dengan error eksplisit.
+5. Vercel tidak menjalankan aplikasi -- project fashion-platform: live=false,
+   framework=null, root domain fashion-platform-six.vercel.app 404. Deployment
+   READY cuma berarti build sukses, bukan aplikasi online. BELUM DIBENERIN
+   (frontend belum ada untuk di-deploy).
+6. Schema drift -- file db/migrations/20260805023907_schema_v2_core.sql cuma
+   19 tabel, live database 30 tabel. 11 tabel hilang dari file acuan:
+   pending_events, stale_event_log, request_dedup, gap_audit_log,
+   stage_quantity_submissions, tenant_mediators, mediator_backups,
+   mediator_reassignment_log, discrepancy_cases, discrepancy_thread_messages,
+   discrepancy_thread_photos, notifications. BELUM DIBENERIN.
+
+P1 (penting):
+1. Session (sessionMap) & rate limiter (rateLimitMap) cuma in-memory Map(),
+   sudah lama tercatat di checklist bagian 6. BELUM DIBENERIN.
+2. API_KEY global untuk semua tenant (bukan per-tenant). BELUM DIBENERIN.
+3. Token WebSocket dikirim lewat query string (?token=...) di /v1/realtime,
+   berisiko kerekam di access log/reverse proxy log. BELUM DIBENERIN.
+4. Upload foto: upload ke storage duluan baru INSERT DB, tidak ada rollback
+   kalau INSERT gagal -- bisa ninggalin file orphan. BELUM DIBENERIN.
+5. Validasi foto cuma set Content-Type manual dari server, tidak ada
+   pengecekan isi file (magic byte/decode) beneran JPEG. BELUM DIBENERIN.
+6. Function reserve_fabric_inventory() EXECUTE terbuka ke PUBLIC/anon/
+   authenticated. SUDAH DIBENERIN: revoke dari PUBLIC/anon/authenticated,
+   cuma app_user/service_role/postgres yang bisa eksekusi. Diverifikasi lewat
+   query grant.
+
+P2 (minor/hardening):
+7. Grant anon/authenticated CRUD penuh ke hampir semua 30 tabel public
+   (bukan cuma yang disebut audit -- lebih luas). SUDAH DIBENERIN: revoke
+   semua grant dari anon/authenticated ke semua tabel public + default
+   privilege direvoke juga (supaya tabel baru ke depan tidak auto-terbuka).
+   Backend pakai app_user (connection string langsung, bukan client Supabase)
+   jadi tidak kesenggol -- diverifikasi app_user tetap 120 grant utuh.
+8. 6 tabel tanpa index tenant_id (discrepancy_thread_messages,
+   discrepancy_thread_photos, gap_audit_log, notifications, pending_events,
+   stale_event_log). SUDAH DIBENERIN: index ditambahkan ke semua 6, diverifikasi
+   lewat pg_indexes.
+9. Tidak ada constraint > 0 untuk fabric_inventory.quantity, inventory_ledger.
+   quantity, payments.amount. SUDAH DIBENERIN, dengan penyesuaian per konteks
+   (bukan asal >0 disamain semua): fabric_inventory.quantity pakai >= 0 (boleh
+   0 = stok habis), inventory_ledger.quantity pakai >0 (selalu dicatat positif,
+   arah dari movement_type -- dikonfirmasi dari definisi function
+   reserve_fabric_inventory()), payments.amount pakai >0 (kolom NOT NULL).
+   Data existing dicek bersih dulu sebelum constraint ditambah.
+10. security-definer functions belum search_path='' (cuma SET search_path TO
+    public) -- belum diverifikasi/dibenerin, minor.
+11. EVENT_CONTRACTS.md ketinggalan dari implementasi kode aktual (masih nyebut
+    order.created, qc.passed dll padahal kode sudah pakai STAGE_COMPLETED,
+    order.stage_changed dll) -- belum dibenerin, dokumentasi doang.
+
+RINGKASAN: 6 dari 15 temuan SUDAH DIBENERIN & TERUJI (semua yang bisa
+dieksekusi lewat Supabase migration langsung -- P0-4, P1-6, P2-7, P2-8, P2-9).
+9 sisanya BUTUH EDIT KODE server.js DI VPS (race condition, atomicity,
+session storage, API key, WS token, storage orphan, validasi foto, schema
+drift file, Vercel deployment) -- ini next steps utama, belum dikerjakan.
+
+Rasa yang termanifestasi: Ketelitian (verifikasi semua klaim langsung ke
+sumber sebelum dipercaya atau dieksekusi, tidak ada yang diasumsikan benar
+begitu saja meski dari audit eksternal), Keamanan (perbaikan grant/immutability/
+constraint mengurangi permukaan risiko nyata, bukan kosmetik).
+
+Next steps bagian 105:
+[ ] Tulis ulang endpoint POST /v1/stage-submissions/:id/confirm: tambah
+    FOR UPDATE di query submission, dan pindahkan ingestEvent() ke DALAM
+    transaksi yang sama (atau pola outbox) supaya atomic dengan update
+    submission/discrepancy
+[ ] Investigasi & bersihkan job testing yang gap_status-nya salah (sequence 10
+    hilang, pending_events sequence 11 nyangkut) -- ini job demo, bukan data
+    customer, aman dibersihkan/direset
+[ ] Pindahkan session/rate-limit dari in-memory Map() ke Redis (atau minimal
+    catat eksplisit sebagai constraint "1 instance only" di deployment)
+[ ] API_KEY per-tenant (bukan 1 global)
+[ ] Token WebSocket lewat header/handshake, bukan query string URL
+[ ] Rollback/cleanup storage kalau INSERT production_stage_photos gagal
+    setelah upload sukses
+[ ] Validasi isi file foto (magic byte check), bukan cuma Content-Type label
+[ ] Regenerate file schema dari live database (pakai pg_dump --schema-only
+    atau gabungkan semua migration jadi 1 file acuan baru), supaya GitHub
+    dan live tidak drift lagi
+[ ] Vercel: baru relevan setelah ada frontend beneran untuk di-deploy
+[ ] security-definer functions: pertimbangkan search_path=''
+[ ] Update EVENT_CONTRACTS.md supaya sinkron dengan event_type aktual di kode
