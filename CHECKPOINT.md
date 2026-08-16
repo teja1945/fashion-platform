@@ -1003,3 +1003,93 @@ Teja mana yang paling relevan untuk kondisi v1 (1 tenant, brand owner
 konveksi kecil) vs mana yang bisa ditunda sampai onboarding tenant nyata.
 Kandidat paling murah/cepat untuk dicoba duluan: #6 (npm audit, satu
 command) dan #9 (cek certbot renew, satu command).
+
+===================================================================
+110. Perbaikan P0-2 & P0-3 (race condition + atomicity endpoint confirm) -- SELESAI & TERUJI (16 Agustus 2026)
+===================================================================
+Konteks: Menuntaskan 2 dari 9 temuan kode yang belum dibenerin dari audit
+ChatGPT (Bagian 105) -- dipilih duluan karena keduanya soal integritas DATA
+(bukan sekadar konfigurasi), risiko tertinggi dari semua yang tersisa.
+
+Rasa yang dipenuhi: Rasa Keamanan (tidak ada lagi "setengah jalan" -- update
+submission dan stage produksi sekarang atomic dalam 1 transaksi, race
+condition ditutup di level database lewat row lock, bukan cuma asumsi di
+level aplikasi) dan Rasa Ketelitian (setiap fungsi yang terlibat dibaca
+lengkap dari kode asli sebelum diubah -- db.js, ingestion.js, versioning.js,
+stateLayer.js -- baru menyusun perbaikan setelah paham alur penuhnya, bukan
+menebak dari nama fungsi; setiap langkah verifikasi syntax sebelum lanjut
+ke langkah berikutnya).
+
+**Perubahan kode (3 file):**
+
+1. versioning.js: fungsi assignVersionAndStore() di-refactor jadi 2 --
+   assignVersionAndStoreInTx(c, {...}) yang menerima client transaksi yang
+   SUDAH BERJALAN (tanpa BEGIN/COMMIT sendiri, bisa numpang ke transaksi
+   caller), dan assignVersionAndStore({...}) lama yang jadi wrapper (buka
+   koneksi+transaksi sendiri, panggil versi Tx di dalamnya) -- tetap dipakai
+   endpoint/jalur lain yang belum butuh atomic dengan operasi lain (ingestion.js
+   generik). Export ditambah: assignVersionAndStoreInTx.
+
+2. ingestion.js: resolveStageTransition() (murni sinkron, tidak sentuh
+   database) ditambahkan ke module.exports supaya bisa dipakai server.js
+   langsung.
+
+3. server.js, endpoint POST /v1/stage-submissions/:id/confirm:
+   - P0-2: query SELECT status submission ditambah FOR UPDATE (row lock) --
+     sebelumnya tidak ada, beda dari endpoint submit yang sudah benar.
+   - P0-3: setelah blok update submission/discrepancy (masih di DALAM
+     withTenantAndStaff yang sama), ditambahkan: ambil current_stage +
+     pipeline_snapshot job (FOR UPDATE), panggil resolveStageTransition(),
+     lalu assignVersionAndStoreInTx(c, ...) -- SEMUA dalam 1 transaksi.
+     Pemanggilan ingestEvent() lama yang terpisah DI LUAR transaksi (beserta
+     logic stage_advance_warning yang membiarkan HTTP 200 meski event gagal)
+     DIHAPUS TOTAL, bukan cuma ditambal.
+   - Dead code let orderId, eventPayload (sudah tidak dipakai setelah
+     ingestEvent lama dihapus) ikut dibersihkan.
+
+**Verifikasi bertahap (setiap sub-langkah, tidak langsung eksekusi besar
+sekaligus):**
+- node -c dijalankan setelah SETIAP edit (5x total) -- semua lulus sebelum
+  lanjut ke edit berikutnya.
+- git diff dicek penuh sebelum restart server, memastikan tidak ada baris
+  yang kesenggol tidak sengaja.
+- pm2 restart fashion-platform --update-env -- error log dicek kosong
+  setelah restart (proses nama PM2 ternyata "fashion-platform", bukan
+  "server" -- dicatat untuk sesi berikutnya).
+
+**Testing end-to-end (curl langsung ke api.benangrasa.com, job demo
+25352257-4cff-4377-85d7-2a63b05146fe, LULUS SEMUA):**
+1. Confirm normal (staff Finishing confirm submission qc) -> 200, response
+   sekarang punya field baru stage_event {sequence_version, applied, to_stage}
+   -- bukti kode baru yang jalan. Diverifikasi balik ke Supabase: current_stage
+   job benar maju ke "finishing", current_version=16 selaras next_sequence_version.
+2. Double-confirm submission yang sama (submission sudah CONFIRMED) -> 409
+   ditolak dengan pesan yang benar, tidak ada event dobel.
+3. RACE CONDITION -- 2 request confirm DIKIRIM BERSAMAAN (& di shell, wait)
+   ke submission baru yang sama (staff Gudang confirm submission finishing)
+   -> HASIL: 1 request 200 CONFIRMED (sequence 17, stage maju ke "shipped"),
+   1 request LAINNYA 409 ditolak "sudah berstatus CONFIRMED". TIDAK ADA
+   duplikasi event/discrepancy. Diverifikasi balik ke production_events:
+   persis 1 baris sequence_version 17, bukan 2. INI BUKTI KONKRET FOR UPDATE
+   benar-benar mencegah race condition di level database, bukan cuma
+   asumsi teoretis dari baca kode.
+
+**Catatan penting -- job testing 25352257... masih bawa histori gap lama
+(sequence 10 hilang, dari Bagian 105) TAPI ini tidak mengganggu testing
+sesi ini** -- current_version job sudah konsisten ke depan (15->16->17
+berurutan tanpa gap baru), histori lama itu murni catatan masa lalu yang
+sudah dikonfirmasi hanya menyentuh job demo/testing, bukan data nyata.
+Investigasi/pembersihan gap lama itu masih next steps terpisah (Bagian 105).
+
+**Status: P0-2 dan P0-3 dari audit ChatGPT (Bagian 105) SELESAI & TERUJI.**
+7 dari 15 temuan sekarang sudah dibenerin total (5 sebelumnya di Bagian 105/107
++ 2 ini). 7 sisanya (P0-1 job testing lama, P0-5 Vercel, P0-6 schema drift,
+P1-1 session in-memory, P1-2 API key global, P1-3 WS token URL, P1-4 storage
+orphan, P1-5 validasi foto) BELUM dikerjakan.
+
+**Next steps Bagian 110:**
+[ ] Review 23 alert CodeQL "missing rate limiting" (Bagian 108) -- prioritas
+    berikutnya menurut diskusi sesi ini
+[ ] k6 load testing untuk memvalidasi lebih jauh di bawah beban tinggi
+    (bukan cuma 2 request manual seperti sesi ini)
+[ ] Sisa 7 temuan kode dari audit ChatGPT (lihat daftar di atas)
