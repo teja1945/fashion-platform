@@ -884,3 +884,81 @@ penuh, lihat keterbatasan di atas).
 [ ] Domain custom tenant self-service (ide besar terpisah, poin I archive
     bagian 53) -- belum diriset, next step besar sendiri kalau ada tenant
     yang benar-benar minta
+
+## 125. P1-1 bagian 1: Migrasi session staff in-memory Map ke Redis -- SEBAGIAN SELESAI, SERAH-TERIMA KE SESI BERIKUTNYA (17 Agustus 2026)
+
+**Status: SESSION STORE SELESAI & TERUJI SOLID. RATE LIMITER (P1-1 bagian 2)
+BELUM DISENTUH. WS AUTH END-TO-END BELUM DIVERIFIKASI NYATA. Room berikutnya
+WAJIB baca bagian ini dulu sebelum lanjut, jangan mulai dari nol.**
+
+**Rasa yang dipenuhi:** Rasa Keamanan (sesi staff tidak lagi hilang total
+tiap pm2 restart -- gap nyata yang ketahuan langsung dari kejadian Bagian
+122, sekarang tertutup dengan bukti konkret bukan asumsi) dan Rasa
+Ketelitian (saat verify-before-write ke endpoint /v1/staff/revoke,
+ditemukan endpoint itu SEBELUMNYA tidak punya try/catch sama sekali --
+ditambahkan sekalian, bukan cuma migrasi sessionMap->sessionStore doang).
+
+**Konteks:** melanjutkan next step Bagian 122/124 -- sessionMap in-memory
+(new Map() di proses Node) hilang total tiap pm2 restart, semua staff
+yang lagi login otomatis logout paksa di tengah kerja. Kejadian nyata
+Bagian 122 (restart abis deploy SAVEPOINT fix, 2 staff demo langsung
+"sesi kadaluarsa").
+
+**Perubahan (commit 01170fc, 4 file, 219 insertion/41 deletion):**
+
+sessionStore.js (baru):
+- Session disimpan di Redis pakai native TTL (SET ... PX), bukan lagi
+  size-based clear() manual.
+- Index staff_sessions:{tenantId}:{staffId} (Redis SET) untuk fitur
+  revoke-by-staff_id tanpa scan seluruh keyspace, dengan lazy cleanup
+  token basi saat ditemukan.
+- Redis client (ioredis) maxRetriesPerRequest: 3 -- gagal cepat kalau
+  Redis down, tidak hang tanpa batas.
+
+server.js -- 8 titik migrasi dari sessionMap ke sessionStore:
+1. requireStaffSession jadi async, try/catch Redis error -> 503
+2. createSession di endpoint login -> await sessionStore.createSession
+3. /v1/staff/revoke -- TAMBAH try/catch baru (sebelumnya endpoint ini
+   TIDAK ada try/catch sama sekali, ketemu pas verify-before-write)
+4. /v1/staff/offboard -- ganti loop, try/catch sudah ada sebelumnya
+5-6. WS auth (pesan pertama) -- async, try/catch -> close(4002) kalau
+     Redis error
+7. WS recheck interval -- setInterval jadi async, error Redis di
+   recheck TIDAK menutup koneksi (beda dari auth awal) -- error transient
+   tidak boleh melempar staff keluar dari koneksi aktif
+
+**Testing (VPS, semua LULUS):**
+- Login -> token tersimpan benar di Redis (verified via redis-cli
+  GET/TTL, TTL 28778s ~ 8 jam sesuai SESSION_TTL_MS)
+- PEMBUKTIAN UTAMA: token bertahan setelah pm2 restart --update-env
+- /v1/staff/revoke dengan 2 session aktif milik 1 staff ->
+  revoked_sessions: 2, keduanya benar-benar mati (redis-cli KEYS
+  kosong, request selanjutnya 401)
+- CORS (Bagian 124) tetap jalan normal setelah restart, tidak kesenggol
+- redis-cli ping -> PONG, Redis service hidup & stabil di VPS
+
+**BELUM DITEST (jujur dicatat, bukan diklaim tuntas):**
+- Jalur WS auth end-to-end lewat koneksi WS asli (butuh WS client, bukan
+  curl) -- kode pakai getSession/touchSession yang sama persis dengan
+  REST yang sudah terbukti jalan, tapi belum diverifikasi nyata lewat
+  koneksi WS beneran. Pola testing serupa sudah ada di Bagian 115 (wscat
+  gagal mode non-interaktif, solusinya node -e + ws + nohup) --
+  bisa dipakai ulang.
+
+**BELUM DIKERJAKAN SAMA SEKALI:**
+- Rate limiter (rateLimitMap, brute-force PIN protection) MASIH
+  in-memory -- ini P1-1 bagian kedua, sengaja dipisah jadi commit
+  terpisah karena concern beda (session vs brute-force protection).
+  Artinya: pm2 restart sekarang AMAN buat session staff, TAPI counter
+  rate-limit PIN masih ke-reset tiap restart (tidak separah session
+  hilang -- cuma proteksi brute-force sementara "lupa" hitungannya).
+
+**NEXT STEP LANGSUNG (urutan disepakati, tinggal eksekusi):**
+[ ] Test WS auth end-to-end pakai WS client asli (bukan cuma percaya kode
+    sama dengan REST) -- pola testing dari Bagian 115 bisa dipakai ulang
+[ ] P1-1 bagian 2: migrasi rateLimitMap ke Redis (commit terpisah)
+[ ] P0-6 lama: schema/migration reproducibility
+[ ] PIN progressive lockout (Bagian 109 #11 / Bagian 119 poin 14)
+[ ] Test suite CI gate (Bagian 119 poin 15)
+[ ] #16/#17 Bagian 119 (audit trail admin, monitoring) -- belum
+    diverifikasi kodenya, masih asumsi dari Bagian 109
