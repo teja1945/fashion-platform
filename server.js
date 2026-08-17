@@ -10,11 +10,40 @@ const { ingestEvent, resolveStageTransition } = require("./ingestion");
 const { assignVersionAndStoreInTx } = require("./versioning");
 const { startGapMonitor /*, startBundleSplitReconciler */ } = require("./worker");
 const tenantResolver = require("./middleware/tenantResolver");
+const cors = require("cors");
 const { extractSubdomain } = require("./middleware/tenantResolver");
 
 const rateLimit = require("express-rate-limit");
 
 const app = express();
+
+// CORS -- daftar origin yang bisa diperluas (Rasa Grosir, Bagian 88/118),
+// BUKAN wildcard hardcode mati satu baris. Sekarang cuma domain Benangrasa,
+// tapi strukturnya (array + regex) siap ditambah domain custom tenant kapan
+// saja tanpa bongkar ulang -- analoginya gerbang baca "daftar tamu" yang
+// bisa ditambah, bukan gerbang yang cuma kenal 1 nama.
+const ALLOWED_ORIGIN_PATTERNS = [
+  /^https:\/\/([a-z0-9-]+\.)?benangrasa\.com$/, // domain utama + semua subdomain
+];
+// Domain custom tenant ke depan (Bagian 118 poin I, belum diriset penuh --
+// baru struktur/kerangka, bukan self-service dari dashboard). Tambah regex
+// atau string persis ke sini kalau ada tenant besar minta domain sendiri.
+const CUSTOM_TENANT_ORIGINS = [];
+
+const corsOptions = {
+  origin(origin, callback) {
+    // origin undefined = request tanpa header Origin (curl, server-to-server,
+    // Postman) -- diizinkan, ini bukan proteksi terhadap non-browser.
+    if (!origin) return callback(null, true);
+    const allowed =
+      ALLOWED_ORIGIN_PATTERNS.some((p) => p.test(origin)) ||
+      CUSTOM_TENANT_ORIGINS.includes(origin);
+    if (allowed) return callback(null, true);
+    return callback(null, false); // tolak halus, tidak nyetel header CORS, TIDAK throw ke Express error handler (hindari noise 500 tiap ada scan/origin asing)
+  },
+  credentials: false, // staff pakai token bearer (x-staff-token), bukan cookie
+};
+app.use(cors(corsOptions));
 app.set("trust proxy", "loopback"); // nginx reverse proxy di localhost yang sama (Bagian 99-100) -- perlu ini biar express-rate-limit (Bagian 111) baca IP client asli, bukan IP nginx
 app.use(express.json({ limit: "10mb" }));
 
