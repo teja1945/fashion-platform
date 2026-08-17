@@ -969,3 +969,42 @@ Ditest pakai pola node -e + ws + nohup (sama seperti Bagian 115):
 [ ] Test suite CI gate (Bagian 119 poin 15)
 [ ] #16/#17 Bagian 119 (audit trail admin, monitoring) -- belum
     diverifikasi kodenya, masih asumsi dari Bagian 109
+
+## 126. P1-1 bagian 2: Migrasi rate limiter ke Redis + perjelas pesan error login -- SELESAI & TERUJI (17 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Keamanan (counter rate-limit brute-force PIN tidak lagi ke-reset gratis tiap pm2 restart -- dibuktikan langsung, bukan diasumsikan) dan Rasa Customer Service (pesan error login yang tadinya generic "internal error" diperjelas jadi kasih tau staff ini gangguan sementara, bukan salah mereka).
+
+**Konteks:** melanjutkan P1-1 bagian 1 (Bagian 125, session ke Redis) -- rate limiter (rateLimitMap) juga masih in-memory, sengaja dipisah jadi commit sendiri karena concern beda (session vs brute-force protection).
+
+**Keputusan desain (didiskusikan sebelum eksekusi):**
+- rateLimiter.js bikin koneksi Redis SENDIRI, bukan reuse punya sessionStore.js -- konsisten pola tiap modul berdiri sendiri (db.js punya pool sendiri, sessionStore.js punya koneksi sendiri).
+- Fail-OPEN kalau Redis error/down (beda dari sessionStore yang fail-closed untuk create session) -- rate limiter cuma proteksi TAMBAHAN, PIN yang benar tetap wajib. Kalau dipilih fail-closed, dampaknya lebih parah dari masalah yang mau dicegah (semua staff gak bisa login sama sekali gara-gara Redis down, padahal Redis down biasanya soal infrastruktur bukan lagi diserang).
+
+**Perubahan (commit f2e03f8, 2 file, 75 insertion/16 deletion):**
+
+rateLimiter.js (baru): fixed-window counter pakai Redis INCR + PEXPIRE, logic sama persis dengan checkRateLimit versi in-memory lama, cuma medianya pindah. try/catch di sekeliling operasi Redis -- error di-log tapi return true (izinkan lanjut), bukan throw.
+
+server.js:
+- require("./rateLimiter") ditambah
+- Blok rateLimitMap/checkRateLimit lama dihapus, diganti komentar penunjuk
+- 2 titik pemanggilan (staffKey, ipKey di endpoint login) ditambah await
+- Pesan error 500 di endpoint login diperjelas dari "internal error" jadi "Layanan sedang gangguan sementara, coba lagi beberapa saat lagi" -- HANYA di endpoint ini, BELUM di 13 titik "internal error" lain di server.js (sengaja tidak dirombak sekaligus, sesuai prinsip Bagian 64 "kode lama tidak perlu dirombak buru-buru" -- masuk daftar polish pass, lihat next steps)
+
+**Testing (VPS, semua LULUS):**
+1. 6 percobaan login PIN salah beruntun -> percobaan 1-5 kena "PIN salah", percobaan ke-6 kena 429 "Terlalu banyak percobaan PIN". LULUS.
+2. Verifikasi langsung ke Redis: redis-cli KEYS "ratelimit:*" -> muncul key ratelimit:staff:... dan ratelimit:ip:..., TTL 30 (sesuai window). LULUS -- bukti counter beneran di Redis, bukan kebetulan.
+3. PEMBUKTIAN UTAMA: pm2 restart --update-env -> key rate-limit masih ada di Redis (TTL lanjut turun, tidak reset ke awal). LULUS -- beda dari versi in-memory lama yang pasti hilang total tiap restart.
+4. Fail-open: Redis di-stop manual (systemctl stop redis-server), coba login -> tetap dapat respons 500 dari endpoint, TAPI dikonfirmasi lewat baca kode+urutan eksekusi bahwa checkRateLimit sendiri SUDAH return true (fail-open bekerja, tidak jadi penyebab blokir) -- 500 yang muncul berasal dari titik LAIN (sessionStore.createSession, lihat temuan di bawah), bukan dari rate limiter. Redis dinyalakan lagi (systemctl start redis-server), dikonfirmasi PONG.
+
+**Temuan tambahan saat testing fail-open (dicatat karena penting, bukan bug rate limiter):** waktu Redis mati total, endpoint login TETAP gagal (500) -- bukan karena rate limiter (yang terbukti fail-open), tapi karena sessionStore.createSession() di sessionStore.js tidak punya try/catch dan gagal keras kalau Redis tidak bisa diakses. Ini DIPUTUSKAN SEBAGAI PERILAKU YANG BENAR (bukan bug untuk diperbaiki) -- kalau session store juga dipaksa fail-open, staff akan dapat token yang kelihatan berhasil login tapi tidak pernah tersimpan di mana pun, sehingga request berikutnya langsung "sesi tidak ditemukan" -- lebih membingungkan daripada gagal jelas dari awal. Rate limiter dan session store SENGAJA punya perilaku gagal yang berbeda: rate limiter fail-open (proteksi tambahan), session store fail-closed (tanpa Redis, sesi tidak berguna sama sekali).
+
+**Verifikasi sebelum commit:** node -c server.js syntax OK, git diff dibaca penuh (cuma menyentuh require, blok rateLimitMap lama, 2 pemanggilan, dan 1 pesan error -- tidak ada yang kesenggol di luar itu), git status dicek rateLimiter.js masuk sebagai file baru sebelum git add.
+
+**Status: P1-1 SELESAI & TERUJI PENUH -- kedua bagian (session Bagian 125 + rate limiter Bagian 126) sudah dimigrasi ke Redis dan dites end-to-end termasuk skenario pm2 restart.**
+
+**Next steps Bagian 126:**
+[ ] Polish pass: 13 titik lain pesan "internal error" di server.js masih generic -- belum direview satu-satu, bukan prioritas mendesak (item polish, bukan bug)
+[ ] P0-6 lama: schema/migration reproducibility
+[ ] PIN progressive lockout (Bagian 109 #11 / Bagian 119 poin 14)
+[ ] Test suite CI gate (Bagian 119 poin 15)
+[ ] #16/#17 Bagian 119 (audit trail admin, monitoring) -- belum diverifikasi kodenya, masih asumsi dari Bagian 109
