@@ -249,6 +249,14 @@ KOLABORASI & CACHE — WAJIB DIBACA TIAP SESI BARU
 - Cara edit/append file di VPS: `cat >> nama_file << 'EOF' ... EOF` untuk NAMBAH (bukan nano). `>>` = append, `>` = overwrite total. Verifikasi dengan `tail -N nama_file` setelah append, sebelum commit & push.
 - Cross-check ke ChatGPT: rekomendasikan proaktif kalau ada keputusan desain berisiko tinggi (arsitektur data, security, race condition, konsistensi) — jangan nunggu Teja minta duluan. Evaluasi jujur hasilnya.
 - Workflow Teja: satu-langkah-satu-waktu. Claude kasih 1 command/langkah, tunggu hasil dari Teja, baru lanjut ke langkah berikutnya. Jangan kasih banyak command sekaligus.
+- KLARIFIKASI POLA PEMAKAIAN (17 Agustus 2026): 4 akun Claude yang dipakai
+  Teja jalan BERGANTIAN saat kena limit, BUKAN paralel bersamaan -- risiko
+  konflik/kontradiksi di atas jauh lebih rendah untuk pola ini. Tetap wajib:
+  (a) push ke GitHub SEBELUM pindah akun, commit progress kecil-kecil kalau
+  memungkinkan (jangan nunggu semua kelar baru commit), (b) kalau kena limit
+  di tengah kerjaan yang belum selesai/belum ditest, sempetin catat status
+  "SERAH-TERIMA KE SESI BERIKUTNYA" dulu (pola yang sudah dipakai Bagian
+  121/125) sebelum akun itu gak bisa diakses lagi.
 
 ===================================================================
 ATURAN WAJIB (14 Agustus 2026): jelasin pakai bahasa sederhana dari awal
@@ -1124,3 +1132,108 @@ Dicek struktur tabel live (payments: id, tenant_id, order_id, amount, currency, 
 [ ] Tingkat 3 (boleh nunggu): privatize repo penuh + kontrak lisensi detail (relevan terutama kalau Skenario C Bagian 129 kejadian)
 
 **Status: CHECKLIST TERCATAT. 1 temuan (arsitektur pembayaran) SUDAH DIVERIFIKASI ke live data. Sisanya BELUM DIEKSEKUSI.**
+
+## 131. Ide Awal — Business Continuity / Disaster Recovery Checklist untuk solo dev (17 Agustus 2026, BELUM DIRISET MATANG)
+
+Konteks: diskusi soal risiko kalau Teja gak pegang HP/gak bisa dihubungi
+seminggu (liburan/pindah/ke luar negeri), dan risiko kalau data/infrastruktur
+hilang (hacker rusak data, Supabase/GitHub/VPS bangkrut). Belum satupun
+dieksekusi, murni daftar hasil diskusi.
+
+A. Ketahanan saat Teja gak bisa dihubungi (liburan/pindah/luar negeri):
+[ ] Alerting otomatis (UptimeRobot dkk, sudah tercatat Bagian 127) kirim
+    notif ke channel yang TETAP bisa diakses walau ganti negara/nomor HP
+    (email > SMS)
+[ ] Semua akun kritis (Biznet Gio, Supabase, GitHub, domain registrar)
+    pindah dari 2FA berbasis SMS ke 2FA app (Authenticator) -- SMS OTP ke
+    nomor Indonesia berisiko gak kebaca kalau roaming/ganti SIM di luar negeri
+[ ] Runbook darurat 1 halaman: langkah 1-2-3 kalau server down, bisa
+    dieksekusi orang lain (bukan cuma Teja) tanpa harus paham 130+ bagian
+    checkpoint
+[ ] Identifikasi 1 orang kedua yang dipercaya, punya akses darurat
+    (SSH/kredensial minimal) buat kondisi Teja bener-bener gak bisa dihubungi
+[ ] Cek firewall/security group VPS gak ada pembatasan geografis IP
+    (kemungkinan aman berdasar catatan UFW default-deny + port 22 doang,
+    tapi belum dicek ulang eksplisit)
+[ ] Pertimbangkan tmux/screen di VPS biar proses gak keputus kalau koneksi
+    SSH dari luar negeri gak stabil
+
+B. Ketahanan data (hacker rusak/hapus, Supabase/GitHub/VPS bangkrut):
+[ ] Backup off-site -- prinsip 3-2-1 (minimal 3 salinan, 2 media beda, 1
+    lokasi terpisah dari VPS produksi). Backup pg_dump SEKARANG kemungkinan
+    cuma ada di VPS itu sendiri -- kalau VPS/hacker kompromi server, backup
+    ikut kena juga. PALING PRIORITAS dari semua poin di checklist ini.
+[ ] Restore drill (gap lama Bagian 3/109/130) -- backup pg_dump format
+    PostgreSQL standar, portable ke instance manapun, TAPI belum pernah
+    benar-benar dites restore ke instance kosong
+[ ] Cek plan Supabase apakah include PITR (Point-in-Time Recovery) sebagai
+    lapis proteksi tambahan di luar pg_dump manual
+[ ] Clone repo ke minimal 1 tempat lain (laptop pribadi Teja) -- gak cuma
+    gantung di GitHub + VPS
+[ ] Backup file konfigurasi VPS penting (nginx config, .env struktur tanpa
+    isi rahasia, PM2 config, CHECKPOINT.md) -- sering keluput karena fokus
+    cuma ke database
+[ ] Dokumentasi proses provisioning VPS dari nol (checklist: install
+    Node 20, clone repo, install PM2/nginx/Redis, restore .env, setup SSL,
+    arahkan DNS) -- database sudah terpisah di Supabase jadi migrasi VPS
+    "cuma" mindahin compute, bukan data
+[ ] DNS TTL rendah -- bikin perpindahan ke IP VPS baru lebih cepat
+    propagasi kalau kepepet
+[ ] Simpan kredensial akun Biznet Gio di password manager -- biar kalau
+    perlu buka tiket darurat/export data terakhir sebelum akun bener-bener
+    ditutup, Teja masih bisa akses
+
+Prinsip yang disepakati: risiko VPS/GitHub bangkrut relatif RINGAN karena
+database sudah dipisah ke Supabase dan kode ada di 2+ tempat (VPS+GitHub).
+Risiko PALING BERAT adalah backup cuma 1 salinan di 1 tempat (belum
+memenuhi 3-2-1) DAN restore drill belum pernah dibuktikan berhasil.
+
+Status: CHECKLIST TERCATAT, BELUM ADA EKSEKUSI SAMA SEKALI.
+
+## 132. Ide Awal — Radar Teknologi: pemantauan berkala perkembangan AI/tools relevan (17 Agustus 2026, BELUM DIRISET MATANG)
+
+Konteks: Teja mau gak ketinggalan perkembangan AI/tools terbaru yang bisa
+diadopsi ke proyek (coding agent baru, model lebih murah, tools security,
+dst), tanpa harus habisin waktu riset manual sendiri di luar jam kerja
+proyek.
+
+MEKANISME GANDA yang disepakati (2 trigger, saling menjaga -- kalau salah
+satu kelewat, yang lain jadi cadangan):
+
+Trigger 1 -- Reminder kalender berulang tiap 2 minggu (Senin jam 9 pagi):
+[x] Event sudah disimpan manual ke kalender Teja (17 Agustus 2026). Akses
+    Calendar Claude di app masih belum diizinkan (jadi bukan native lewat
+    tool Claude), tapi remindernya sudah AKTIF dan cukup buat tujuannya.
+
+Trigger 2 -- Cek otomatis tiap kali CHECKPOINT.md dibuka di sesi/room baru:
+[ ] SETIAP sesi baru dimulai dan Teja kasih raw link CHECKPOINT.md ke
+    Claude (termasuk saat pindah akun gara-gara limit habis) -- Claude
+    WAJIB cek tanggal "Radar Teknologi" terakhir tercatat di checkpoint.
+    Kalau sudah >= 2 minggu sejak itu (atau belum pernah ada sama sekali),
+    Claude TAWARIN ke Teja di awal sesi: "udah 2 minggu+ sejak radar
+    teknologi terakhir, mau di-scan sekarang?" -- bukan otomatis langsung
+    jalanin tanpa tanya (biar gak ganggu kalau Teja lagi buru-buru mau
+    lanjut kerjaan teknis).
+[ ] Ini jadi cadangan kalau Trigger 1 (reminder kalender) kelewat/gak
+    kebuka HP-nya -- karena pola pemakaian Teja pindah akun cukup sering
+    (tiap kena limit), trigger ini kemungkinan lebih sering "nangkep" momen
+    yang tepat dibanding reminder 2 mingguan doang.
+
+Alur tiap kali radar dijalankan (baik dari Trigger 1 maupun 2):
+[ ] Claude web search perkembangan AI/tools terkini
+[ ] Disaring bareng Teja: worth diadopsi ke Benangrasa vs sekadar dicatat
+    buat referensi
+[ ] Kalau ada yang worth diadopsi -- dicatat sebagai section baru bernomor
+    di CHECKPOINT.md (ikut pola "CARA MENCATAT IDE BARU" yang sudah ada)
+[ ] SETIAP radar dijalankan (walau hasilnya "gak ada yang relevan") --
+    tanggal & ringkasan singkat dicatat sebagai 1 baris di bagian ini
+    (bukan section baru tiap kali), biar Trigger 2 di sesi berikutnya bisa
+    ngecek tanggal terakhir dengan akurat.
+
+Log radar (diisi tiap kali dijalankan, baris baru di bawah -- BUKAN
+overwrite):
+- [belum pernah dijalankan]
+
+Status: MEKANISME DISEPAKATI, AKTIF SEBAGIAN (Trigger 1 aktif via kalender
+manual, Trigger 2 baru jadi ATURAN tertulis mulai sekarang -- perlu
+dibuktikan jalan konsisten di sesi-sesi berikutnya).
