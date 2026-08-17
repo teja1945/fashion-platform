@@ -1008,3 +1008,37 @@ server.js:
 [ ] PIN progressive lockout (Bagian 109 #11 / Bagian 119 poin 14)
 [ ] Test suite CI gate (Bagian 119 poin 15)
 [ ] #16/#17 Bagian 119 (audit trail admin, monitoring) -- belum diverifikasi kodenya, masih asumsi dari Bagian 109
+
+## 127. Ide Awal -- Rencana pemasangan tools audit/security otomatis (17 Agustus 2026, BELUM DIRISET MATANG)
+
+**Konteks:** setelah cross-check audit ChatGPT ronde 3 (yang sebagian besar akurat, lihat verifikasi langsung via Supabase MCP hari ini), didiskusikan tools otomatis apa aja yang bisa nambah lapis proteksi/visibility ke depan. Sengaja dicatat sebagai rencana dulu sebelum eksekusi, karena daftarnya lumayan besar (11 item) dan bakal dikerjain bertahap lintas sesi -- BELUM ADA SATUPUN yang dipasang di bagian ini.
+
+**Yang sudah dipakai (existing, bukan bagian rencana ini):** Supabase Security/Performance Advisor, GitHub CodeQL, Dependabot.
+
+**Prinsip yang disepakati saat diskusi:** awalnya sempat dipertimbangkan skip beberapa tools dengan alasan "belum ada trafik/user asli, belum perlu" -- DIKOREKSI oleh Teja, konsisten dengan Rasa Grosir (Bagian 88/95/118): bedanya bukan "kecil vs besar", tapi "murah dipasang sekarang vs mahal kalau ditunda sampai kepepet". Analogi yang disepakati: pasang pipa ekstra pas bangun pondasi itu murah, bongkar tembok buat pasang pipa pas rumah udah jadi itu mahal.
+
+**Daftar tools (11 item, bertahap sesuai tingkat effort):**
+
+Tingkat 1 -- instant, gak perlu install (mulai dari sini):
+[ ] npm audit -- cek kerentanan dependency, bawaan npm
+[ ] gitleaks -- scan git history cari kredensial ke-commit gak sengaja (PENTING: repo public, beberapa kali pegang API key di terminal sepanjang sesi kerja)
+
+Tingkat 2 -- install/config sekali, jalan otomatis terus:
+[ ] Lynis -- general check-up konfigurasi VPS (SSH, firewall, permission)
+[ ] testssl.sh -- cek konfigurasi HTTPS/SSL (validasi setup certbot Bagian 99-100)
+[ ] eslint-plugin-security -- nempel ke ESLint (kalau belum ada, setup dulu), nandain pola kode beresiko pas nulis
+
+Tingkat 3 -- butuh akun eksternal/integrasi:
+[ ] UptimeRobot -- monitoring uptime + alert kalau server down (nutup gap Bagian 109 poin #3)
+[ ] Sentry -- error tracking real-time dari production (worth dipasang sekarang walau trafik masih sepi, karena setup-nya murah, nunggu sampai ada trafik nyata baru pasang itu yang mahal)
+[ ] Snyk -- SAST + dependency check lebih dalam dari Dependabot (BUKAN redundant -- Snyk punya reachability analysis, database kerentanan lebih luas, dan Snyk Code buat baca kode sendiri lintas-file, bukan cuma pattern-matching per baris kayak eslint-plugin-security)
+[ ] Cloudflare (WAF gratis tier) -- nahan serangan real-time di depan VPS begitu backend kebuka ke publik, nyambung ke rencana domain custom tenant (Bagian 118)
+
+Tingkat 4 -- paling berat, butuh waktu khusus:
+[ ] Semgrep -- custom rule scanning, butuh belajar dulu
+[ ] OWASP ZAP -- dynamic testing (simulasi serangan ke app yang lagi jalan), banyak false positive kalau gak dikonfigurasi hati-hati -- lebih aman dicoba SEKARANG ke tenant demo sebelum ada data tenant asli, daripada nanti pas udah ada data sungguhan
+
+**Yang DIPUTUSKAN TIDAK dipasang:**
+(tidak ada -- awalnya Snyk sempat dipertimbangkan redundant dengan Dependabot, tapi dikoreksi setelah dianalisis lebih dalam: keduanya overlap di dependency check, tapi Snyk Code dan reachability analysis itu kemampuan yang Dependabot tidak punya. Keputusan akhir: pasang semua 11 item, bertahap.)
+
+**Status: RENCANA TERCATAT, EKSEKUSI BELUM DIMULAI.** Sesi berikutnya mulai dari Tingkat 1 (npm audit, sudah di ambang eksekusi saat sesi ini berakhir).
