@@ -1042,3 +1042,85 @@ Tingkat 4 -- paling berat, butuh waktu khusus:
 (tidak ada -- awalnya Snyk sempat dipertimbangkan redundant dengan Dependabot, tapi dikoreksi setelah dianalisis lebih dalam: keduanya overlap di dependency check, tapi Snyk Code dan reachability analysis itu kemampuan yang Dependabot tidak punya. Keputusan akhir: pasang semua 11 item, bertahap.)
 
 **Status: RENCANA TERCATAT, EKSEKUSI BELUM DIMULAI.** Sesi berikutnya mulai dari Tingkat 1 (npm audit, sudah di ambang eksekusi saat sesi ini berakhir).
+
+## 128. Kapasitas VPS saat ini -- temuan & rekomendasi (17 Agustus 2026, BELUM DIEKSEKUSI)
+
+**Konteks:** dicek spek VPS aktual (free -h, nproc, df -h) di tengah diskusi kesiapan platform buat nampung banyak tenant.
+
+**Temuan:** VPS Biznet Gio saat ini 1 CPU core, RAM ~957Mi (total), TIDAK ADA SWAP SAMA SEKALI (0B). Disk aman (55GB nganggur dari 58GB). Sekarang cukup buat testing/demo, tapi 2 titik nyata yang perlu diawasi:
+1. 1 CPU core -- semua proses (server.js, Nginx, Redis, worker gap-monitor) gantian di 1 core, gak paralel beneran. Makin banyak staff/tenant aktif bersamaan, makin sering "antri".
+2. Tanpa swap, begitu RAM abis, OS langsung matiin proses paling gede makan memory (biasanya Node.js) mendadak -- bukan melambat pelan-pelan. Berkat migrasi session ke Redis (Bagian 125), staff gak sampai logout paksa kalau ini kejadian dan PM2 auto-restart, tapi tetap ada downtime pas restart.
+
+**Rekomendasi bertingkat (disepakati saat diskusi):**
+[ ] Tingkat 1 -- pasang SWAP sekarang, gratis (pakai disk nganggur), gak ada alasan nunda
+[ ] Tingkat 1 -- setel PM2 restart otomatis kalau Node.js lewat batas memory tertentu (proaktif, bukan nunggu OS maksa matiin)
+[ ] Tingkat 2 -- upgrade RAM/CPU VPS -- TUNGGU sampai ada sinyal nyata kepenuhan (misal dari data Sentry/UptimeRobot, Bagian 127), bukan tebak-tebak. VPS Biznet Gio kemungkinan besar bisa dibayar domestik tanpa masalah (beda dari isu Claude Pro), jadi upgrade ini gampang dieksekusi kapan pun siap
+[ ] Tingkat 3 (jauh) -- pisahin beban (worker terpisah dari server API, atau VPS kedua buat load balancing) -- sudah dimungkinkan berkat migrasi Redis (session/rate-limit gak nempel 1 proses), tapi belum perlu dipikirin sekarang
+
+**Soal ganti VPS (didiskusikan, BELUM diputuskan):**
+- Upgrade spek di Biznet Gio yang sama itu gampang (tinggal resize dari dashboard provider, gak perlu pindah data/konfigurasi apapun)
+- Pindah ke provider LAIN itu beda cerita -- install ulang semua dari nol (Node/Nginx/Redis/PM2), setup ulang SSL, pindah DNS, DAN berpotensi balik ke masalah pembayaran domestik yang jadi alasan awal Biznet Gio dipilih (Bagian 1)
+- Dicek Hostinger sebagai contoh: speknya kuat (server Indonesia tersedia, sampai 8 core/32GB), TAPI metode pembayarannya cuma kartu internasional (Visa/MasterCard/dll) + PayPal/crypto -- TIDAK terlihat ada opsi transfer bank domestik langsung kayak provider lokal (IDCloudHost dll). Resiko sama persis kayak kejadian Claude Pro (kartu GPN/BRI kemungkinan ditolak). BELUM dicoba langsung di checkout Hostinger buat mastiin.
+
+**Status: TEMUAN TERCATAT, BELUM ADA EKSEKUSI.**
+
+## 129. Ide Awal -- Skenario tenant bawa infrastruktur sendiri (domain/VPS) (17 Agustus 2026, BELUM DIRISET MATANG)
+
+**Konteks:** didiskusikan gimana kalau tenant udah punya domain dan/atau VPS sendiri, mau pakai platform Benangrasa. Ada beberapa skenario beda, konsekuensi teknis & bisnisnya beda jauh.
+
+**Skenario A -- tenant cuma punya domain, mau nunjuk ke server Benangrasa (PALING MASUK AKAL, sesuai arsitektur sekarang):**
+VPS tenant TIDAK kepake sama sekali di skenario ini -- cuma domain mereka yang "nunjuk" ke IP VPS Benangrasa, mirip pola CDN/reverse-proxy. Ini udah sebagian direncanain di Bagian 118/124 (CORS custom domain), tapi 3 langkah belum dieksekusi:
+[ ] Verifikasi kepemilikan domain (WAJIB sebelum aktivasi -- pola umum: suruh tenant pasang TXT record berisi kode unik, dicek dulu sebelum lanjut, biar gak bisa asal klaim domain orang lain)
+[ ] Perluas tenantResolver supaya kenal domain custom -> tenant_id (sekarang cuma baca pola X.benangrasa.com)
+[ ] Isi CUSTOM_TENANT_ORIGINS di CORS (struktur udah siap dari Bagian 124, tinggal diisi per tenant)
+[ ] Jalanin certbot per domain tenant (manual sekarang, PERLU DIOTOMATISASI kalau tenant-nya banyak -- Let's Encrypt juga ada rate limit per domain per minggu, worth diperhatiin)
+[ ] Tabel database baru: tenant_custom_domains (domain, tenant_id, status_verifikasi) -- MURAH dibangun sekarang walau belum dipakai, mahal kalau nambah belakangan pas data numpuk
+
+**Skenario B -- tenant mau VPS sendiri TAPI kontrol tetap di Benangrasa (jalan tengah kalau tenant "maksa" mau VPS sendiri):**
+Tenant beli/bayar VPS-nya (kepemilikan billing/fisik ada nama mereka), tapi Benangrasa yang install, pegang akses SSH/root, dan urus semua maintenance/update. Tenant gak pernah pegang akses langsung. Resiko bisnis (tenant kabur gak bayar tapi tetap jalan pakai kode) HILANG karena mereka gak pernah pegang "kunci". Biasanya cukup buat alasan compliance/branding tenant tanpa perlu lepas kendali penuh.
+
+**Skenario C -- tenant maksa VPS + akses penuh (self-hosted beneran, root SSH mereka pegang):**
+Ini LEPAS KENDALI TOTAL -- konsekuensi besar, BUKAN keputusan teknis lagi:
+- Resiko bisnis: begitu tenant pegang kode+database, apa insentif mereka tetap bayar? Perlu model lisensi jelas (bayar untuk UPDATE & SUPPORT, bukan cuma akses)
+- Perlu paket instalasi yang gampang dipasang ulang (kemungkinan Docker), bukan proses manual kayak sekarang
+- Keamanan server jadi tanggung jawab tenant sepenuhnya -- semua hardening yang udah dibangun (UFW, Fail2Ban, dst) harus mereka ulang sendiri, gak ada jaminan mereka lakuin
+- Kalau beneran kejadian: charge jauh lebih mahal (model lisensi + setup fee + kontrak support tahunan, bukan langganan biasa), WAJIB kontrak tertulis jelas, WAJIB konsultasi ke ahli hukum lisensi software (bukan keputusan teknis semata)
+
+**Prinsip yang disepakati:** JANGAN bangun infrastruktur Skenario B/C dari sekarang tanpa ada klien nyata yang minta -- kemungkinan besar kebutuhan detailnya baru jelas pas ada klien beneran ngobrol. Skenario A (poin tenant_custom_domains) yang worth disiapin strukturnya sekarang karena murah dan nyambung ke rencana domain custom yang udah ada (Bagian 118/124, ide poin I archive bagian 53).
+
+**Status: IDE TERCATAT, BELUM ADA EKSEKUSI SAMA SEKALI.**
+
+## 130. Checklist kesiapan sebelum jual ke publik + temuan arsitektur pembayaran (17 Agustus 2026, BELUM DIRISET MATANG SEPENUHNYA -- 1 TEMUAN SUDAH DIVERIFIKASI)
+
+**Konteks:** didiskusikan resiko-resiko non-teknis (legal, bisnis, operasional) yang perlu disiapin sebelum Benangrasa mulai dijual ke tenant nyata -- bukan cuma soal kode/infrastruktur. Bukan nasihat hukum resmi, cuma daftar area yang perlu ditindaklanjuti/dikonsultasikan.
+
+**TEMUAN PENTING -- diverifikasi langsung ke Supabase + kode (Rasa Ketelitian), bukan asumsi:**
+
+Resiko regulasi terbesar yang diidentifikasi: kalau uang customer LEWAT sistem/rekening yang dikontrol platform sebelum diterusin ke tenant (walau cuma numpang lewat), itu berpotensi masuk kategori Penyedia Jasa Pembayaran (PJP) yang diawasi Bank Indonesia -- butuh izin resmi. Kalau uang customer LANGSUNG ke rekening/gateway tenant sendiri (platform cuma nagih fee terpisah), itu di luar cakupan aturan itu.
+
+Dicek struktur tabel live (payments: id, tenant_id, order_id, amount, currency, status, payment_method, timestamps -- terlihat seperti CATATAN/LOG status doang, tidak ada kolom escrow/platform_account; tenant_billing: id, tenant_id, billing_model, fee_amount, fee_percentage, currency, billing_status -- terlihat seperti tagihan platform-ke-tenant, terpisah dari uang customer). Dicek juga grep -i "midtrans\|xendit\|payment_gateway\|webhook.*payment\|stripe" server.js -> NOL hasil, belum ada integrasi payment gateway apapun di kode.
+
+**Kesimpulan:** ini justru momen paling murah buat mengunci arsitektur yang aman, SEBELUM ada kode yang komit ke pola lain. Prinsip desain yang WAJIB dipegang saat nanti bangun fitur payment:
+- Tenant daftar akun payment gateway (Midtrans/Xendit/dll) atas nama bisnis mereka sendiri, pakai kredensial mereka sendiri
+- Uang customer masuk LANGSUNG ke akun tenant, TIDAK PERNAH lewat akun/kredensial platform
+- Tabel payments di sistem Benangrasa cuma buat TRACKING/LAPORAN (baca status dari webhook tenant), BUKAN tempat uang ditampung
+- tenant_billing (fee langganan) itu transaksi TERPISAH, platform-ke-tenant, beda dari alur customer-ke-tenant
+
+**Resiko lain yang diidentifikasi (belum diverifikasi mendalam, sekadar daftar):**
+1. UU Perlindungan Data Pribadi (PDP) -- platform udah nyimpen data sensitif (nomor telepon/alamat customer, data staff, checkpoint Bagian 6) -- begitu ada tenant nyata pakai data customer asli, kena kewajiban UU PDP termasuk lapor kalau ada kebocoran
+2. Restore drill belum pernah dieksekusi (gap lama, Bagian 3/109) -- resiko makin nyata begitu ada tenant produksi yang gantungin operasional harian
+3. Solo dev, belum ada kapasitas dukungan 24/7 -- server down di luar jam kerja jadi masalah bisnis tenant begitu ada yang gantungin operasional nyata
+4. Repo GitHub masih public -- begitu mulai jual, kompetitor bisa ambil kode mentah-mentah
+5. Kesiapan administrasi bisnis (rekening bisnis, invoice resmi, ambang batas PPh/PPN) -- belum dicek/disiapin
+
+**Rencana bertingkat (disepakati prinsipnya, belum semua dieksekusi):**
+[ ] Tingkat 1 (murah, sekarang): kunci prinsip arsitektur pembayaran di atas SEBELUM nulis kode payment gateway apapun
+[ ] Tingkat 1 (murah, sekarang): eksekusi restore drill (Bagian 3/109, gap lama)
+[ ] Tingkat 1 (murah, sekarang): draft awal Terms of Service + Privacy Policy (gak perlu pengacara buat draft awal, direview pengacara nanti pas mau jual beneran)
+[ ] Tingkat 1 (murah, sekarang): catatan rencana insiden sederhana (urutan langkah kalau server down)
+[ ] Tingkat 2 (perlu nanya org lain, tapi mulai sekarang): 1x konsultasi status PJP ke konsultan hukum fintech/baca panduan resmi OJK-BI, biar yakin posisi aman
+[ ] Tingkat 2: cek ambang batas kewajiban lapor pajak (PPh/PPN)
+[ ] Tingkat 3 (boleh nunggu): bikin badan usaha resmi (PT/CV) + rekening bisnis
+[ ] Tingkat 3 (boleh nunggu): privatize repo penuh + kontrak lisensi detail (relevan terutama kalau Skenario C Bagian 129 kejadian)
+
+**Status: CHECKLIST TERCATAT. 1 temuan (arsitektur pembayaran) SUDAH DIVERIFIKASI ke live data. Sisanya BELUM DIEKSEKUSI.**
