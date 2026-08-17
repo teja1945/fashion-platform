@@ -772,3 +772,34 @@ tuntas semua):**
 [ ] Test suite CI gate (Bagian 119 poin 15)
 [ ] #16/#17 Bagian 119 (audit trail admin, monitoring) -- belum diverifikasi
     kodenya, masih asumsi dari Bagian 109
+
+## 123. Fix pesan error mediator -- SELESAI (17 Agustus 2026)
+
+**Konteks:** bug ditemukan di Bagian 119 (audit ChatGPT ronde 2) -- endpoint
+POST /v1/mediators pakai `isPrivileged()` (PRIVILEGED_ROLES = ["admin",
+"owner"], baris 82-84) untuk cek otorisasi, tapi pesan error 403-nya bilang
+"hanya owner yang bisa menunjuk mediator" -- tidak sesuai logic asli yang
+sebenarnya juga mengizinkan admin.
+
+**Keputusan Teja:** logic sudah benar (admin+owner memang boleh, konsisten
+pola job_locks override_admin_pin & owner-resolve Bagian 93) -- yang
+diperbaiki cuma pesannya, bukan logic-nya.
+
+**Perbaikan (commit 4e66ccc):** baris 263 server.js, "hanya owner yang bisa
+menunjuk mediator" -> "hanya admin/owner yang bisa menunjuk mediator".
+Verifikasi baris persis dulu via sed sebelum edit (konsisten pola
+verifikasi Bagian 115/121), `node -c` OK, git diff cuma 1 baris.
+
+**Status: SELESAI.** Item "Perbaiki pesan error mediator" dicoret dari next
+steps Bagian 119/120/121/122.
+
+**Next steps aktif sekarang (urutan disepakati dengan Teja):**
+[ ] CORS (Bagian 118, desain sudah disepakati -- struktur list origin +
+    regex wildcard subdomain, siap dieksekusi tanpa diskusi ulang) -- NEXT
+[ ] P1-1 session/rate-limit ke Redis (urgensi makin nyata sejak restart
+    Bagian 122 logout semua staff aktif)
+[ ] P0-6 lama: schema/migration reproducibility
+[ ] PIN progressive lockout (Bagian 109 #11 / Bagian 119 poin 14)
+[ ] Test suite CI gate (Bagian 119 poin 15)
+[ ] #16/#17 Bagian 119 (audit trail admin, monitoring) -- belum diverifikasi
+    kodenya, masih asumsi dari Bagian 109
