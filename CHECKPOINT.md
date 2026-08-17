@@ -887,9 +887,11 @@ penuh, lihat keterbatasan di atas).
 
 ## 125. P1-1 bagian 1: Migrasi session staff in-memory Map ke Redis -- SEBAGIAN SELESAI, SERAH-TERIMA KE SESI BERIKUTNYA (17 Agustus 2026)
 
-**Status: SESSION STORE SELESAI & TERUJI SOLID. RATE LIMITER (P1-1 bagian 2)
-BELUM DISENTUH. WS AUTH END-TO-END BELUM DIVERIFIKASI NYATA. Room berikutnya
-WAJIB baca bagian ini dulu sebelum lanjut, jangan mulai dari nol.**
+**Status: SESSION STORE SELESAI & TERUJI SOLID, TERMASUK WS AUTH
+END-TO-END (diverifikasi 17 Agustus 2026, lihat testing tambahan di
+bawah). RATE LIMITER (P1-1 bagian 2) BELUM DISENTUH -- satu-satunya
+next step besar tersisa dari P1-1. Room berikutnya WAJIB baca bagian
+ini dulu sebelum lanjut.**
 
 **Rasa yang dipenuhi:** Rasa Keamanan (sesi staff tidak lagi hilang total
 tiap pm2 restart -- gap nyata yang ketahuan langsung dari kejadian Bagian
@@ -937,13 +939,18 @@ server.js -- 8 titik migrasi dari sessionMap ke sessionStore:
 - CORS (Bagian 124) tetap jalan normal setelah restart, tidak kesenggol
 - redis-cli ping -> PONG, Redis service hidup & stabil di VPS
 
-**BELUM DITEST (jujur dicatat, bukan diklaim tuntas):**
-- Jalur WS auth end-to-end lewat koneksi WS asli (butuh WS client, bukan
-  curl) -- kode pakai getSession/touchSession yang sama persis dengan
-  REST yang sudah terbukti jalan, tapi belum diverifikasi nyata lewat
-  koneksi WS beneran. Pola testing serupa sudah ada di Bagian 115 (wscat
-  gagal mode non-interaktif, solusinya node -e + ws + nohup) --
-  bisa dipakai ulang.
+**WS auth end-to-end -- SUDAH DITEST, LULUS (tambahan 17 Agustus 2026):**
+Ditest pakai pola node -e + ws + nohup (sama seperti Bagian 115):
+1. Login Staff QC Demo -> connect WS + kirim {type:"auth",token} ->
+   server balas {"type":"auth_ok"} langsung. LULUS.
+2. Koneksi dibiarkan hidup di background (nohup), Admin Demo revoke
+   sesi Staff QC Demo lewat POST /v1/staff/revoke (target_staff_id) ->
+   revoked_sessions:1.
+3. Re-check interval mendeteksi sesi sudah tidak ada di sessionStore
+   Redis -> koneksi WS auto-close code 4003 reason "sesi dicabut",
+   ~3 menit setelah connect (dalam batas wajar re-check 30 detik).
+   LULUS -- bukti konkret sessionStore Redis yang baru tetap memutus
+   koneksi WS aktif, sama seperti sessionMap in-memory lama (Bagian 115).
 
 **BELUM DIKERJAKAN SAMA SEKALI:**
 - Rate limiter (rateLimitMap, brute-force PIN protection) MASIH
