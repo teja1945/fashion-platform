@@ -260,7 +260,7 @@ app.post("/v1/staff/revoke", tenantResolver, requireApiKey, requireStaffSession,
 
 app.post("/v1/mediators", tenantResolver, requireApiKey, requireStaffSession, async (req, res) => {
   if (!isPrivileged(req.staffSession.role)) {
-    return res.status(403).json({ error: "hanya owner yang bisa menunjuk mediator" });
+    return res.status(403).json({ error: "hanya admin/owner yang bisa menunjuk mediator" });
   }
   const { staff_id, line_scope, has_full_mandate } = req.body || {};
   if (!staff_id) {
