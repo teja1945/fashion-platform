@@ -803,3 +803,84 @@ steps Bagian 119/120/121/122.
 [ ] Test suite CI gate (Bagian 119 poin 15)
 [ ] #16/#17 Bagian 119 (audit trail admin, monitoring) -- belum diverifikasi
     kodenya, masih asumsi dari Bagian 109
+
+## 124. CORS -- SELESAI & TERUJI (17 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Grosir (struktur list origin + regex disiapkan
+di depan untuk domain custom tenant, bukan wildcard hardcode mati yang
+harus dibongkar ulang tiap ada kebutuhan baru -- persis prinsip yang
+ditegaskan Teja di Bagian 118) dan Rasa Ketelitian (percobaan pertama pakai
+`callback(new Error(...))` menghasilkan 500 generic untuk origin asing --
+bukan bug fungsional tapi cara nolak yang kasar/noise; diperbaiki ke
+`callback(null, false)` setelah testing awal, bukan dibiarkan karena
+"sudah menutup celah keamanannya").
+
+**Konteks:** melanjutkan Bagian 118 (desain sudah disepakati, kode belum
+ditulis) -- poin #8 daftar terbuka Bagian 109.
+
+**Implementasi (server.js, commit b7d3032):**
+- `npm install cors`
+- `ALLOWED_ORIGIN_PATTERNS`: array regex, sekarang isinya
+  `/^https:\/\/([a-z0-9-]+\.)?benangrasa\.com$/` (cover domain utama +
+  semua subdomain sekaligus).
+- `CUSTOM_TENANT_ORIGINS`: array kosong siap-isi untuk domain custom tenant
+  ke depan -- struktur/kerangka saja (sesuai prinsip Bagian 95), BUKAN
+  logic penuh self-service pilih domain dari dashboard (itu ide besar
+  terpisah, poin I archive bagian 53, belum diriset).
+- Origin function: undefined origin (curl/server-to-server) selalu
+  diizinkan (bukan proteksi terhadap non-browser). Origin cocok pattern ->
+  izinkan. Tidak cocok -> `callback(null, false)` (tolak halus, tidak
+  nyetel header CORS sama sekali, TIDAK throw Error ke Express error
+  handler).
+- `credentials: false` -- staff pakai token bearer (x-staff-token), bukan
+  cookie, konsisten arsitektur auth yang sudah ada.
+
+**Percobaan pertama (dikoreksi sebelum commit):** versi awal pakai
+`callback(new Error("Origin tidak diizinkan oleh CORS"))` untuk origin yang
+ditolak -- fungsinya BENAR (header CORS tetap tidak muncul untuk origin
+asing), tapi implementasinya bikin Express jatuh ke default error handler
+-> response 500 Internal Server Error. Ini bukan celah keamanan (browser
+tetap block karena tidak ada header Access-Control-Allow-Origin), tapi
+berpotensi numpuk noise di error log tiap ada scan/percobaan origin asing,
+dan tidak jelas dibedakan dari error asli. Diperbaiki ke `callback(null,
+false)` -- pola standar library `cors`, tidak melempar exception.
+
+**Testing (3 skenario OPTIONS preflight, semua LULUS setelah fix):**
+1. Origin `https://demo.benangrasa.com` -> 204 No Content, header
+   `Access-Control-Allow-Origin: https://demo.benangrasa.com` muncul.
+2. Origin `https://evil.com` -> 200 OK, TIDAK ADA header
+   Access-Control-Allow-Origin sama sekali (browser akan block).
+3. Origin mirip-menipu `https://benangrasa.com.evil.ru` -> 200 OK, TIDAK
+   ADA header CORS (regex `$` di akhir pattern mencegah domain "menempel"
+   di belakang string benangrasa.com dianggap valid).
+
+**3 KETERBATASAN yang WAJIB dipahami (belum ditutup, dicatat eksplisit,
+bukan diklaim tuntas -- sama seperti sudah disampaikan di Bagian 118):**
+1. Origin list masih hardcode di kode (array biasa di server.js), BUKAN
+   baca dari tabel database. Domain custom tenant baru = edit kode + deploy
+   ulang manual, belum self-service.
+2. tenantResolver (fungsi resolve tenant_id dari request) SAMA SEKALI BELUM
+   diupdate mengenali domain custom -- masih cuma baca subdomain pola
+   `X.benangrasa.com`. CORS mengizinkan browser manggil, tapi backend belum
+   tahu translate domain custom -> tenant_id. 2 sistem terpisah, harus
+   diupdate BERSAMAAN nanti.
+3. Domain custom tenant beneran = combo 3 langkah belum diriset: (a) DNS
+   tenant diarahkan ke server Benangrasa, (b) tenantResolver diperluas
+   mengenali domain custom, (c) sertifikat SSL terpisah (certbot ulang per
+   domain). Next step besar tersendiri, bukan sekadar tambah baris CORS.
+
+**Status: CORS SELESAI & TERUJI.** Poin #8 daftar terbuka Bagian 109
+RESMI TERTUTUP (untuk cakupan struktur/kerangka -- bukan self-service
+penuh, lihat keterbatasan di atas).
+
+**Next steps aktif sekarang:**
+[ ] P1-1 session/rate-limit ke Redis (urgensi makin nyata sejak restart
+    Bagian 122 logout semua staff aktif) -- NEXT, prioritas disepakati Teja
+[ ] P0-6 lama: schema/migration reproducibility
+[ ] PIN progressive lockout (Bagian 109 #11 / Bagian 119 poin 14)
+[ ] Test suite CI gate (Bagian 119 poin 15)
+[ ] #16/#17 Bagian 119 (audit trail admin, monitoring) -- belum diverifikasi
+    kodenya, masih asumsi dari Bagian 109
+[ ] Domain custom tenant self-service (ide besar terpisah, poin I archive
+    bagian 53) -- belum diriset, next step besar sendiri kalau ada tenant
+    yang benar-benar minta
