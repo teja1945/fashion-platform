@@ -1237,3 +1237,183 @@ overwrite):
 Status: MEKANISME DISEPAKATI, AKTIF SEBAGIAN (Trigger 1 aktif via kalender
 manual, Trigger 2 baru jadi ATURAN tertulis mulai sekarang -- perlu
 dibuktikan jalan konsisten di sesi-sesi berikutnya).
+
+## 133. Ide Awal — Pelengkap tools security (Tingkat 1.5, tambahan ke Bagian 127) (17 Agustus 2026, BELUM DIRISET MATANG)
+
+Konteks: lanjutan diskusi Bagian 127 (11 tools) -- Teja tegas target "tahan
+virus, tahan hacker, tahan error, tahan gap, tahan banting apapun". Prinsip
+disepakati: tidak ada sistem 100% aman (konsisten Bagian 6) -- target
+realistis adalah naikin biaya serangan, percepat deteksi, kecilkan blast
+radius, percepat recovery -- BUKAN "gak akan pernah kejadian apa-apa".
+
+Tambahan tools per kategori (belum ada di 11 daftar Bagian 127):
+
+A. Deteksi malware/intrusion level VPS (paling relevan -- proyek nerima
+   upload foto staff, production_stage_photos & discrepancy_thread_photos):
+[ ] ClamAV -- scan file upload sebelum disimpan (paling langsung jawab
+    kekhawatiran "virus" di jalur upload)
+[ ] rkhunter / chkrootkit -- deteksi rootkit di VPS
+[ ] AIDE -- checksum snapshot file sistem, alert kalau ada perubahan
+    diam-diam (deteksi intrusion, beda dari ClamAV yang scan file upload)
+[ ] auditd -- log kernel-level siapa akses/ubah file apa (forensik kalau
+    ada insiden)
+
+B. Patch & supply-chain:
+[ ] unattended-upgrades -- auto-patch keamanan OS Ubuntu, paling murah
+    dieksekusi (banyak breach dari celah lama yang patch-nya sudah ada
+    tapi belum di-apply, bukan zero-day)
+[ ] Socket.dev / npm-audit-resolver -- deteksi supply-chain attack di
+    dependency npm (kode jahat disusupin ke package), lebih agresif dari
+    Dependabot yang sudah ada
+
+C. Header & validasi HTTP (belum kecatat sama sekali):
+[ ] helmet.js -- header keamanan Express standar, murah (beberapa baris
+    kode), cegah clickjacking/MIME-sniffing
+[ ] CSP (Content Security Policy) -- relevan begitu ada frontend, cegah XSS
+[ ] HSTS -- paksa HTTPS, cegah downgrade ke HTTP
+
+D. Validasi input terstruktur:
+[ ] zod atau joi -- validasi skema input konsisten di semua endpoint
+    (nyambung ke item lama checklist keamanan Bagian 6 "validasi input
+    lebih ketat" yang belum ditutup)
+
+E. Deteksi & respons insiden:
+[ ] Log terpusat di luar server (Logtail/Papertrail dkk) -- kalau hacker
+    masuk, mereka biasa hapus log lokal untuk nutup jejak; log yang sudah
+    "kabur" ke luar server tidak bisa mereka hapus
+[ ] Honeypot sederhana -- endpoint palsu yang tidak pernah dipanggil
+    aplikasi normal, akses ke situ = jelas serangan/scan, ban otomatis
+
+F. Resiliensi (bukan cuma proteksi dari serangan eksternal, juga dari bug
+   sendiri):
+[ ] Staging environment terpisah dari produksi -- SEKARANG semua testing
+    kelihatan langsung ke server produksi (dari pola testing di checkpoint
+    ini) -- risiko besar, bug saat testing bisa langsung kena data nyata
+[ ] Feature flag / kemampuan matikan fitur cepat tanpa rollback penuh
+[ ] Database connection pooling limit -- cegah 1 bug menghabiskan semua
+    koneksi (connection exhaustion)
+[ ] Circuit breaker pattern -- kalau 1 komponen (misal Redis) down, sistem
+    lain tetap jalan sebisa mungkin, tidak ikut collapse semua
+
+G. Level bisnis (bukan teknis, relevan untuk "tahan banting" total):
+[ ] Cyber insurance -- begitu proyek jalan komersial, jaring pengaman
+    finansial terakhir kalau kejadian terburuk beneran terjadi
+
+EFEK SAMPING yang harus diwaspadai kalau semua dipasang sekaligus (jangan
+asal pasang semua tanpa pertimbangan ini):
+- Alert fatigue -- makin banyak scanner (OWASP ZAP, eslint-security, dst),
+  makin banyak false positive, risiko mulai skip alert kalau tidak dikelola
+- Overhead performa -- VPS sekarang 1 core, RAM ~1GB (Bagian 128), jalanin
+  ClamAV+auditd+AIDE dkk bersamaan bisa berasa beratnya, perlu diuji
+  dampak resource satu-satu sebelum full pasang semua
+- Maintenance jadi beban sendiri -- solo dev + belasan tools security =
+  makin banyak yang perlu dipantau/di-update rutin; tools yang tidak
+  di-update malah kasih rasa aman palsu
+
+Status: DAFTAR TERCATAT, BELUM ADA EKSEKUSI. Digabung prioritasnya dengan
+11 tools Bagian 127 di sesi eksekusi berikutnya -- perlu disortir ulang
+bareng Teja mana yang paling depan (kemungkinan besar: unattended-upgrades
+dan ClamAV paling murah & langsung relevan ke upload foto yang sudah aktif
+dipakai).
+
+## 134. Ide Awal — Pelengkap Business Continuity/DR: kecepatan pemulihan (tambahan ke Bagian 131) (17 Agustus 2026, BELUM DIRISET MATANG)
+
+Konteks: lanjutan diskusi Bagian 131 -- fokus khusus ke "apa yang bikin
+pemulihan CEPAT vs LAMBAT", bukan cuma "ada backup atau tidak".
+
+Faktor yang paling menentukan kecepatan pemulihan (urutan dampak, dari
+yang paling berpengaruh):
+[ ] Restore drill sudah PERNAH dibuktikan jalan sebelumnya -- faktor #1;
+    restore pertama kali dicoba pas insiden beneran pasti lambat (coba-coba,
+    panik), restore yang sudah pernah dites tinggal eksekusi runbook
+[ ] Runbook tertulis (bukan di kepala Teja saja) -- sudah tercatat Bagian
+    131, dipertegas lagi karena paling menentukan kalau Teja tidak
+    available (nyambung ke skenario liburan/luar negeri)
+[ ] Kecepatan DETEKSI, bukan cuma kecepatan fix -- UptimeRobot/Sentry
+    (Bagian 127) menentukan gap antara kejadian dan Teja sadar ada masalah;
+    kalau baru sadar dari komplain tenant, itu waktu yang hilang percuma
+    sebelum pemulihan bahkan mulai
+[ ] Database sudah terpisah dari compute (SUDAH BAGUS, arsitektur existing)
+    -- Supabase terpisah dari VPS, kalau VPS rusak data tetap selamat,
+    cuma perlu bangun ulang server
+[ ] Provisioning VPS dari nol yang sudah terdokumentasi (sudah tercatat
+    Bagian 131) -- dipertegas: kalau cuma dokumentasi manual step-by-step,
+    manusia tetap harus eksekusi tiap baris; kalau script otomatis, lebih
+    cepat lagi (lihat poin Infrastructure as Code di bawah)
+
+Tambahan yang mempercepat lebih jauh (belum kecatat sebelumnya):
+[ ] Infrastructure as Code -- 1 script bash/Docker yang otomatis setup
+    semua dari nol (install dependency, clone repo, restore .env, start
+    service), beda level dari sekadar dokumentasi manual
+[ ] VPS snapshot berkala -- cek apakah Biznet Gio nyediain fitur snapshot
+    server utuh (bukan cuma backup database); kalau ada snapshot fresh,
+    restore tinggal "nyalain snapshot itu", jauh lebih cepat dari install
+    ulang dari nol
+[ ] Standby/warm backup server -- level paling advance, BELUM PERLU
+    sekarang (VPS masih kecil), baru relevan kalau sudah ada tenant nyata
+    yang gantung ke uptime tinggi
+[ ] Rollback cepat untuk masalah dari deploy sendiri (bukan serangan) --
+    git revert cepat/feature flag; realistisnya lebih SERING kepakai
+    daripada skenario hacker/bencana, karena banyak "insiden" itu bug dari
+    kode baru sendiri
+
+Proteksi terhadap BACKUP itu sendiri (baru, belum kecatat -- penting
+karena pola serangan ransomware klasik: rusak data produksi + backup
+sekaligus):
+[ ] Immutable/write-once backup -- backup yang tidak bisa dihapus/diubah
+    selama periode tertentu, menutup celah kalau akun penyimpan backup
+    ikut dikompromikan
+[ ] Backup terenkripsi -- data sensitif (nomor telepon/alamat customer,
+    Bagian 6) yang ada di backup sama bahayanya kalau bocor dengan
+    database live bocor
+[ ] Checksum/verifikasi otomatis tiap backup selesai -- bukan cuma restore
+    drill sesekali, tapi tiap backup harian otomatis dicek utuh/tidak
+    korup, biar ketahuan cepat kalau ada backup gagal diam-diam
+
+Target waktu eksplisit (konsep standar DR, belum pernah didefinisikan
+untuk Benangrasa):
+[ ] Tentukan RTO (Recovery Time Objective) -- berapa lama maksimal boleh
+    down sebelum dianggap gawat
+[ ] Tentukan RPO (Recovery Point Objective) -- berapa banyak data maksimal
+    boleh hilang; backup harian saat ini berarti RPO ~24 jam (insiden jam
+    11 malam = data sejak jam 00:00 berpotensi hilang) -- perlu diputuskan
+    apakah ini cukup atau perlu backup lebih sering
+
+Proses (bukan tools):
+[ ] Post-mortem tertulis tiap ada insiden produksi -- apa yang terjadi,
+    kenapa bisa terjadi, apa yang dilakukan biar tidak terulang (checkpoint
+    ini sudah punya insting ke arah ini lewat pola "SERAH-TERIMA" dan
+    catatan kendala teknis di tiap bagian, tinggal diformalkan khusus
+    untuk insiden produksi)
+[ ] Rencana komunikasi ke tenant saat insiden -- status page sederhana
+    atau minimal WA blast manual; diam saat insiden yang bikin tenant
+    panik/tidak percaya, bukan durasi downtime itu sendiri
+
+Level lanjutan (dicatat untuk masa depan, BELUM relevan sekarang):
+[ ] Read replica database -- fallback baca data kalau instance utama
+    Supabase bermasalah, relevan kalau trafik sudah naik
+[ ] Blue-green / canary deployment -- deploy ke sebagian kecil trafik
+    dulu, deteksi masalah SEBELUM full-rollout (lebih maju dari sekadar
+    rollback cepat setelah masalah kejadian)
+
+Status: DAFTAR TERCATAT, BELUM ADA EKSEKUSI. Prioritas tereksekusi
+tersarankan (urutan dari Bagian 130 diskusi): restore drill dulu (buktikan
+backup bisa dipulihkan) -> runbook tertulis -> alerting cepat -> VPS
+snapshot kalau provider menyediakan -> baru mikirin standby server (nanti
+kalau sudah ada tenant nyata).
+
+## 135. Ide Awal — Pelengkap terakhir: pentest berkala + dependency pinning (tambahan ke Bagian 133) (17 Agustus 2026, BELUM DIRISET MATANG)
+
+Konteks: 2 poin susulan yang tadinya dianggap "diminishing returns" tapi
+tetap diminta dicatat oleh Teja -- prinsip: lebih baik tercatat dan belum
+dieksekusi, daripada terlupa karena tidak ditulis.
+
+[ ] Jadwal pentest berkala -- bukan cuma OWASP ZAP sekali jalan (Bagian
+    127), tapi disiplin diulang tiap beberapa bulan ATAU setiap ada fitur
+    besar baru yang dirilis (bukan jadwal kalender kaku semata)
+[ ] Dependency pinning / lockfile audit -- pastikan package-lock.json
+    dikunci ke versi persis (bukan range "^"), supaya `npm install` tidak
+    diam-diam menarik versi baru yang belum divalidasi -- relevan langsung
+    ke gap Socket.dev/supply-chain attack yang sudah dicatat Bagian 133
+
+Status: DAFTAR TERCATAT, BELUM ADA EKSEKUSI.
