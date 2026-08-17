@@ -6,6 +6,7 @@ const path = require("path");
 const crypto = require("crypto");
 
 const { pool, withTenant, withTenantAndStaff } = require("./db");
+const sessionStore = require("./sessionStore");
 const { ingestEvent, resolveStageTransition } = require("./ingestion");
 const { assignVersionAndStoreInTx } = require("./versioning");
 const { startGapMonitor /*, startBundleSplitReconciler */ } = require("./worker");
@@ -175,43 +176,34 @@ function checkRateLimit(key, limit, windowMs) {
   rateLimitMap.set(key, entry);
   return entry.count <= limit;
 }
-
-const sessionMap = new Map();
-const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 jam
-
-function createSession(tenantId, staff) {
-  if (sessionMap.size > 10000) sessionMap.clear();
-  const token = crypto.randomBytes(32).toString("hex");
-  sessionMap.set(token, {
-    tenantId,
-    staffId: staff.id,
-    role: staff.role,
-    assignedStage: staff.assigned_stage,
-    fullName: staff.full_name,
-    expiresAt: Date.now() + SESSION_TTL_MS,
-  });
-  return token;
-}
-
-function requireStaffSession(req, res, next) {
+async function requireStaffSession(req, res, next) {
   const token = req.header("x-staff-token");
   if (!token) {
     return res.status(401).json({ error: "sesi tidak ditemukan, silakan login ulang" });
   }
-  const session = sessionMap.get(token);
-  if (!session || session.expiresAt < Date.now()) {
-    sessionMap.delete(token);
+  let session;
+  try {
+    session = await sessionStore.getSession(token);
+  } catch (err) {
+    console.error("Redis error saat cek sesi:", err.message);
+    return res.status(503).json({ error: "layanan sesi sedang bermasalah, coba lagi sebentar" });
+  }
+  if (!session) {
     return res.status(401).json({ error: "sesi kadaluarsa, silakan login ulang" });
   }
   // Cegah token dipakai lintas-tenant (misal token bocor / salah kirim)
   if (session.tenantId !== req.tenantId) {
     return res.status(403).json({ error: "sesi ini bukan untuk tenant ini" });
   }
-  session.expiresAt = Date.now() + SESSION_TTL_MS;
+  try {
+    await sessionStore.touchSession(token, session);
+  } catch (err) {
+    console.error("Redis error saat refresh TTL sesi:", err.message);
+    // tidak fatal -- request tetap lanjut, cuma TTL tidak ke-refresh kali ini
+  }
   req.staffSession = session;
   next();
 }
-
 app.get("/v1/staff/list", tenantResolver, requireApiKey, async (req, res) => {
   const client = await pool.connect();
   try {
@@ -258,7 +250,7 @@ app.post("/v1/staff/login", tenantResolver, requireApiKey, async (req, res) => {
       return res.status(401).json({ error: "PIN salah atau staff tidak aktif" });
     }
     const staff = result.rows[0];
-    const token = createSession(req.tenantId, staff);
+    const token = await sessionStore.createSession(req.tenantId, staff);
     res.json({ ok: true, staff, token });
   } catch (err) {
     console.error("staff login error:", err);
@@ -277,11 +269,11 @@ app.post("/v1/staff/revoke", tenantResolver, requireApiKey, requireStaffSession,
     return res.status(400).json({ error: "target_staff_id wajib diisi" });
   }
   let revokedCount = 0;
-  for (const [token, session] of sessionMap.entries()) {
-    if (session.tenantId === req.tenantId && session.staffId === target_staff_id) {
-      sessionMap.delete(token);
-      revokedCount += 1;
-    }
+  try {
+    revokedCount = await sessionStore.revokeStaffSessions(req.tenantId, target_staff_id);
+  } catch (err) {
+    console.error("Redis error saat revoke sesi:", err.message);
+    return res.status(503).json({ error: "layanan sesi sedang bermasalah, coba lagi sebentar" });
   }
   console.log(`REVOKE: admin ${req.staffSession.staffId} (tenant ${req.tenantId}) revoke ${revokedCount} sesi milik staff ${target_staff_id}`);
   res.json({ ok: true, revoked_sessions: revokedCount });
@@ -338,13 +330,7 @@ app.post("/v1/staff/offboard", tenantResolver, requireApiKey, requireStaffSessio
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "staff tidak ditemukan" });
     }
-    let revokedCount = 0;
-    for (const [token, session] of sessionMap.entries()) {
-      if (session.tenantId === req.tenantId && session.staffId === target_staff_id) {
-        sessionMap.delete(token);
-        revokedCount += 1;
-      }
-    }
+    const revokedCount = await sessionStore.revokeStaffSessions(req.tenantId, target_staff_id);
     console.log(`OFFBOARD: admin ${req.staffSession.staffId} offboard staff ${result.rows[0].full_name} (${target_staff_id}), is_active=false + revoke ${revokedCount} sesi`);
     res.json({ ok: true, staff: result.rows[0], revoked_sessions: revokedCount });
   } catch (err) {
@@ -1834,27 +1820,47 @@ wss.on("connection", (ws, req) => {
       if (data.type !== "auth" || !data.token) {
         return; // pesan pertama wajib auth, abaikan pesan lain sebelum itu
       }
-      const session = sessionMap.get(data.token);
+      let session;
+      try {
+        session = await sessionStore.getSession(data.token);
+      } catch (err) {
+        console.error("Redis error saat WS auth:", err.message);
+        ws.close(4002, "layanan sesi bermasalah");
+        return;
+      }
       if (!session || session.expiresAt < Date.now()) {
         console.log(`WS: auth gagal (sesi tidak ditemukan/kadaluarsa), tenant ${ws.tenantId}`);
         ws.close(4001, "auth gagal");
         return;
       }
+
       if (session.tenantId !== ws.tenantId) {
         console.log(`WS: auth gagal (sesi bukan untuk tenant ini), tenant ${ws.tenantId}`);
         ws.close(4001, "auth gagal");
         return;
       }
+
       // Refresh TTL, konsisten dengan pola requireStaffSession di REST.
-      session.expiresAt = Date.now() + SESSION_TTL_MS;
+      try {
+        await sessionStore.touchSession(data.token, session);
+      } catch (err) {
+        console.error("Redis error saat refresh TTL sesi WS:", err.message);
+        // tidak fatal -- koneksi tetap lanjut, cuma TTL tidak ke-refresh kali ini
+      }
       ws.staffId = session.staffId;
       ws.role = session.role;
       ws.authToken = data.token;
       ws.authenticated = true;
       clearTimeout(authTimeout);
 
-      recheckInterval = setInterval(() => {
-        const s = sessionMap.get(ws.authToken);
+      recheckInterval = setInterval(async () => {
+        let s;
+        try {
+          s = await sessionStore.getSession(ws.authToken);
+        } catch (err) {
+          console.error("Redis error saat WS recheck sesi:", err.message);
+          return; // Redis lagi bermasalah -- jangan putus koneksi karena error transient, tunggu recheck berikutnya
+        }
         if (!s || s.expiresAt < Date.now()) {
           console.log(`WS: koneksi ditutup, sesi dicabut/kadaluarsa di tengah jalan (staff ${ws.staffId}, tenant ${ws.tenantId})`);
           ws.close(4003, "sesi dicabut");
