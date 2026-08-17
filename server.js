@@ -7,6 +7,7 @@ const crypto = require("crypto");
 
 const { pool, withTenant, withTenantAndStaff } = require("./db");
 const sessionStore = require("./sessionStore");
+const rateLimiter = require("./rateLimiter");
 const { ingestEvent, resolveStageTransition } = require("./ingestion");
 const { assignVersionAndStoreInTx } = require("./versioning");
 const { startGapMonitor /*, startBundleSplitReconciler */ } = require("./worker");
@@ -163,19 +164,9 @@ app.get("/v1/orders", tenantResolver, requireApiKey, async (req, res) => {
 // /v1/staff/list (yang balikin id + full_name), baru kirim id itu ke
 // /v1/staff/login bareng PIN.
 // =====================================================================
-const rateLimitMap = new Map();
-function checkRateLimit(key, limit, windowMs) {
-  if (rateLimitMap.size > 10000) rateLimitMap.clear();
-  const now = Date.now();
-  const entry = rateLimitMap.get(key) || { count: 0, ts: now };
-  if (now - entry.ts > windowMs) {
-    entry.count = 0;
-    entry.ts = now;
-  }
-  entry.count += 1;
-  rateLimitMap.set(key, entry);
-  return entry.count <= limit;
-}
+// rateLimitMap in-memory lama dipindah ke rateLimiter.js (Redis) --
+// P1-1 bagian 2, CHECKPOINT Bagian 125/126. checkRateLimit sekarang
+// async, dipanggil via rateLimiter.checkRateLimit(...).
 async function requireStaffSession(req, res, next) {
   const token = req.header("x-staff-token");
   if (!token) {
@@ -229,11 +220,11 @@ app.post("/v1/staff/login", tenantResolver, requireApiKey, async (req, res) => {
 
   // rate limit di-scope per tenant juga, biar tenant A nggak bisa ngerjain rate limit tenant B
   const staffKey = `staff:${req.tenantId}:${staff_id}`;
-  if (!checkRateLimit(staffKey, 5, 30_000)) {
+  if (!(await rateLimiter.checkRateLimit(staffKey, 5, 30_000))) {
     return res.status(429).json({ error: "Terlalu banyak percobaan PIN, coba lagi sebentar lagi" });
   }
   const ipKey = `ip:${ip}`;
-  if (!checkRateLimit(ipKey, 20, 30_000)) {
+  if (!(await rateLimiter.checkRateLimit(ipKey, 20, 30_000))) {
     return res.status(429).json({ error: "Terlalu banyak request, coba lagi sebentar lagi" });
   }
 
@@ -254,7 +245,7 @@ app.post("/v1/staff/login", tenantResolver, requireApiKey, async (req, res) => {
     res.json({ ok: true, staff, token });
   } catch (err) {
     console.error("staff login error:", err);
-    res.status(500).json({ error: "internal error" });
+    res.status(500).json({ error: "Layanan sedang gangguan sementara, coba lagi beberapa saat lagi" });
   } finally {
     client.release();
   }
