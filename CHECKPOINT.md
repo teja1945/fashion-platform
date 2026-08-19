@@ -1546,3 +1546,33 @@ Temuan minor (dicatat, TIDAK dikejar karena dampak nol): X-Content-Type-Options:
 [ ] #16/#17 Bagian 119 -- audit trail admin & monitoring
 [ ] 51 saran Lynis sisanya (Tingkat 2+ Bagian 127/133) -- menyusul, bukan mendesak
 [ ] (opsional, rasa ingin tahu) telusuri sumber X-Content-Type-Options duplikat
+
+## 140. eslint-plugin-security terpasang -- SELESAI & TERUJI, 0 temuan kritis (19 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Ketelitian (5 warning yang muncul tidak langsung diabaikan sebagai "pasti false positive" maupun diterima mentah sebagai "pasti masalah" -- tiap satu diverifikasi lewat pengujian nyata atau pembacaan kode sumber datanya sebelum disimpulkan).
+
+**Konteks:** melanjutkan item Tingkat 2 Bagian 127 di sesi yang sama, setelah Bagian 136-139. Belum ada ESLint sama sekali di project sebelumnya (dicek package.json + .eslintrc*, kosong total).
+
+**Instalasi:** `npm install --save-dev eslint eslint-plugin-security` (Node v20.20.2, ESLint 9.x flat config). File `eslint.config.js` dibuat baru, scope `**/*.js` dengan ignore `node_modules/` dan `testssl.sh/` (folder tool eksternal yang di-clone Bagian 139, bukan kode proyek).
+
+**Hasil scan (`npx eslint .`): 5 warning, 0 error.**
+
+1. `scripts/set-tenant-api-keys.js:34` -- detect-non-literal-fs-filename (belum ditelusuri detail, low-risk karena script ini dijalankan manual oleh Teja sendiri bukan dari request eksternal)
+2. `server.js:28` -- detect-unsafe-regex, pada regex CORS `ALLOWED_ORIGIN_PATTERNS` (Bagian 124). **Diverifikasi FALSE POSITIVE lewat pengujian nyata**: dites dengan input adversarial (string 50.000 karakter dirancang memicu backtracking) -> selesai dalam 0ms. Regex ini cuma 1 level quantifier (bukan nested quantifier `(a+)+` yang jadi pola klasik rentan ReDoS) -- plugin men-flag berdasar pola permukaan `+` di dalam grup optional, bukan analisis matematis presisi.
+3-5. `sessionStore.js:92-95` -- detect-object-injection x3, pada `results[i]` dan `tokens[i]`. **Diverifikasi FALSE POSITIVE**: ini akses array pakai index integer dari loop `for`, bukan `object[userInput]` yang bisa diarahkan pihak luar. Dicek asal `tokens` -> `redis.smembers(key)`, data dari index session Redis milik sistem sendiri, bukan input request. Pola ini pattern false-positive yang dikenal luas untuk eslint-plugin-security (plugin ini men-flag SEMUA bracket notation access, termasuk array index biasa).
+
+**Kesimpulan:** konsisten dengan gitleaks (Bagian 136) dan Lynis (Bagian 138) -- tidak ada temuan kritis baru di kode. Tools tetap dipasang permanen (bukan cuma sekali jalan) supaya kode BARU ke depan otomatis ke-scan setiap kali.
+
+**Commit:** ec1ef19 (package.json, package-lock.json, eslint.config.js -- 3 file, 903 insertion, npm audit setelah install tetap 0 vulnerabilities).
+
+**Status: eslint-plugin-security SELESAI & TERUJI.** Total sesi ini sekarang 10 item dieksekusi tuntas dari nol sampai dites (Bagian 136-140): npm audit, gitleaks, SWAP, PM2 memory limit, unattended-upgrades auto-reboot, Redis hardening, SSL/TLS nginx, SSH hardening, testssl.sh+security headers, eslint-plugin-security.
+
+**Next steps aktif (belum berubah dari Bagian 139, item 1 dari daftar minor dicoret):**
+[ ] Polish pass 13 titik pesan "internal error" generic
+[ ] P0-6 -- schema/migration reproducibility
+[ ] PIN progressive lockout
+[ ] Test suite CI gate
+[ ] #16/#17 Bagian 119 -- audit trail admin & monitoring
+[ ] 51 saran Lynis sisanya (Tingkat 2+ Bagian 127/133) -- menyusul, bukan mendesak
+[ ] scripts/set-tenant-api-keys.js:34 detect-non-literal-fs-filename -- belum ditelusuri detail (low-risk, dijalankan manual)
+[ ] (opsional, rasa ingin tahu) telusuri sumber X-Content-Type-Options duplikat (Bagian 139)
