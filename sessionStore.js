@@ -14,6 +14,7 @@ const crypto = require("crypto");
 const redis = new Redis({
   host: "127.0.0.1",
   port: 6379,
+  password: process.env.REDIS_PASSWORD,
   maxRetriesPerRequest: 3,
   // Kalau Redis down, jangan bikin app hang nunggu retry selamanya --
   // mending gagal cepat (staff dapat error, bisa retry) daripada request
