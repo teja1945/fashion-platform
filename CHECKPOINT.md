@@ -41,9 +41,9 @@ Cara pakai:
 [x] SSH key-only, UFW default-deny (cuma port 22 publik), Fail2Ban aktif, user non-root+sudo, backup pg_dump otomatis harian (retensi 14 hari), pm2+systemd (server.js auto-restart tervalidasi lewat reboot), Node.js 20 LTS.
 
 Belum ada (prioritas berikutnya):
-[ ] HTTPS/SSL — backend masih HTTP polos, WAJIB sebelum expose ke publik/domain live
+[x] HTTPS/SSL -- SELESAI (archive bagian 99-100, hardening lanjutan Bagian 138-139: Grade A+ testssl.sh)
 [ ] Rate limiting API level umum (bukan cuma endpoint PIN)
-[ ] Restore drill (backup baru diverifikasi tidak-corrupt, belum pernah benar-benar di-restore ke instance kosong)
+[x] Restore drill -- SELESAI 19 Agustus 2026, lihat Bagian 142
 
 Detail kronologi: archive bagian 11, 14, 43-46.
 
@@ -67,7 +67,7 @@ Bug-bug kritis historis (sudah diperbaiki, detail di archive, jangan diulang):
 ===================================================================
 5. NEXT STEPS AKTIF
 ===================================================================
-[ ] Restore drill (backup belum pernah direstore beneran ke instance kosong)
+[x] Restore drill -- SELESAI 19 Agustus 2026, lihat Bagian 142
 [ ] Backup off-site 3-2-1
 [ ] OWASP ZAP dynamic testing ke tenant demo
 [ ] ClamAV scan upload foto
@@ -93,7 +93,7 @@ Sudah ada: RLS semua tabel (termasuk staff-scoped untuk discrepancy_cases & thre
 
 Belum ada (perlu direview ke depan):
 [ ] Rate limiting API level umum
-[ ] HTTPS/SSL (prioritas paling dekat)
+[x] HTTPS/SSL -- SELESAI, lihat Bagian 138-139
 [ ] Validasi input lebih ketat di semua endpoint
 [ ] Audit log admin actions terpisah dari production_events (force-unlock, revoke staff, eskalasi manual)
 [ ] Monitoring/alerting otomatis (login gagal beruntun, pola akses aneh)
@@ -101,7 +101,7 @@ Belum ada (perlu direview ke depan):
 [ ] Rate limiter & session in-memory masih single-instance — perlu Redis kalau nanti multi-instance
 [ ] API_KEY tunggal untuk semua endpoint — pertimbangkan granular per tenant
 [ ] Integritas foto bukti — EXIF timestamp vs waktu submission, perceptual hash (bisa 1 modul sama buat production_stage_photos & discrepancy_thread_photos, keduanya simpan storage_path)
-[ ] Restore drill (lihat bagian 3)
+[x] Restore drill -- SELESAI 19 Agustus 2026, lihat Bagian 142
 
 Prinsip wajib untuk fitur self-service baru: selalu tanya "kalau disalahgunakan, dampaknya sejauh mana?" — dan tenant/staff TIDAK PERNAH dikasih akses ke infrastruktur/kredensial Teja dalam bentuk apapun.
 
@@ -452,3 +452,21 @@ Temuan utama: Claude Security -- plugin resmi Anthropic untuk Claude Code, beta 
 **Status: RELEVAN TAPI TERKUNCI.** Butuh Claude Code (min v2.1.154+), sedangkan status Claude Code project ini masih "ditunda" (Bagian 8, constraint pembayaran domestik). Dicatat untuk dieksekusi begitu Claude Code kepake -- next step besar tersendiri, bukan next step langsung sekarang.
 
 Log radar: 19 Agustus 2026 -- 1 temuan relevan (terkunci), dicatat di atas.
+
+## 142. Restore Drill -- SELESAI & TERUJI (19 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Ketelitian (backup yang selama ini cuma diverifikasi lewat "file .sql.gz tidak corrupt" akhirnya benar-benar dibuktikan bisa dipulihkan jadi database utuh dan berfungsi, bukan diasumsikan aman) dan Rasa Keamanan (proses dijalankan di lingkungan terisolasi -- database & server PostgreSQL sementara, sama sekali tidak menyentuh Supabase produksi -- lalu dibersihkan total setelah verifikasi selesai).
+
+**Konteks:** Item ini sudah lama dicatat sebagai prioritas (disebut berkali-kali sejak beberapa sesi lalu, archive bagian 68) tapi belum pernah dieksekusi -- backup otomatis cron (bagian 44) cuma pernah diverifikasi "file tidak corrupt", belum pernah benar-benar direstore ke instance kosong.
+
+**Eksekusi:**
+1. PostgreSQL 17 server diinstall sementara di VPS (dari repo PGDG yang sama dengan client yang sudah ada) -- dipilih server lokal, bukan project Supabase baru, karena kuota free tier Supabase sudah terpakai penuh (2 project).
+2. Database kosong `restore_drill_test` dibuat, terpisah total dari database manapun yang aktif.
+3. Backup terbaru (`fashion_platform_20260819_030001.sql.gz`) di-restore ke database itu. Error yang muncul (role `supabase_admin`, `anon`, `authenticated`, dll tidak ditemukan) dikonfirmasi normal -- itu role infrastruktur khusus Supabase yang memang tidak ada di PostgreSQL polos, bukan indikasi data gagal masuk.
+4. Verifikasi data: 27 tabel semua terbentuk, `production_jobs` 1 baris (current_stage jahit, version 20 -- cocok data terkini), `staff` 5 baris (nama & role cocok persis), `production_events` 19 baris, `discrepancy_cases` 5 baris. Semua konsisten dengan kondisi data aktual di Supabase produksi.
+5. Cleanup: `restore_drill_test` di-drop, PostgreSQL server 17 di-purge total dari VPS (RAM kembali longgar, dari 77Mi jadi 229Mi free).
+6. Verifikasi tidak ada regresi: `psql`/`pg_dump` client (dipakai backup cron) dikonfirmasi tetap utuh setelah purge server. Script `~/backup-db.sh` dites manual -- berhasil, file baru ter-generate normal.
+
+**Kesimpulan:** Backup harian TERBUKTI bisa dipulihkan penuh, bukan cuma asumsi. Proses restore dari file `.sql.gz` sampai database siap pakai memakan waktu kurang dari 5 menit untuk ukuran data saat ini.
+
+**Status: SELESAI & TERUJI.** Item pertama dari 15 next steps aktif (bagian 5) tercoret.
