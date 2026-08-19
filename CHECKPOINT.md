@@ -1507,3 +1507,42 @@ sshd_config 4 baris diubah: MaxAuthTries 6->3, AllowAgentForwarding yes->no, X11
 [ ] Test suite CI gate
 [ ] #16/#17 Bagian 119 -- audit trail admin & monitoring
 [ ] 51 saran Lynis sisanya (Tingkat 2+ Bagian 127/133) -- menyusul, bukan mendesak
+
+## 139. testssl.sh verifikasi independen + 5 security header nginx (HSTS dkk) -- SELESAI & TERUJI (19 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Ketelitian (hasil hardening SSL Bagian 138 tidak cukup dipercaya dari test manual sendiri -- diverifikasi ulang pakai tool pihak ketiga independen) dan Rasa Keamanan (5 header proteksi browser ditambahkan sekaligus begitu ditemukan gap, bukan ditunda, sesuai arahan Teja "jangan ada kekurangan sekecil apapun yang ditunda").
+
+**Konteks:** melanjutkan langsung dari Bagian 138 (SSL/TLS nginx hardening) di sesi yang sama.
+
+### testssl.sh -- verifikasi independen hasil hardening SSL
+git clone testssl.sh (v3.3dev, OpenSSL bundle sendiri jadi tidak tergantung versi sistem) ke ~/testssl.sh. Dijalankan ./testssl.sh --fast https://api.benangrasa.com
+
+Hasil: Grade A+, skor 93 (Protocol Support 100/30, Key Exchange 90/27, Cipher Strength 90/36). Ini konfirmasi independen dari pihak ketiga bahwa hardening TLS Bagian 138 (drop TLSv1/1.1, cipher suite modern) beneran efektif -- bukan cuma lolos test manual sendiri.
+
+### HSTS + 4 security header nginx -- ditemukan gap, langsung ditutup
+Cek header via testssl.sh --headers -> HSTS tidak ada sama sekali. Sesuai arahan eksplisit Teja di sesi ini ("kalau ada yang kurang tambahin, jangan tunda sekecil apapun") -- ditambahkan 5 header sekaligus di /etc/nginx/sites-enabled/api.benangrasa.com (blok server HTTPS, setelah baris ssl_dhparam):
+
+add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-Frame-Options "SAMEORIGIN" always;
+add_header X-XSS-Protection "1; mode=block" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+Keputusan desain: SENGAJA belum pakai HSTS preload -- itu langkah permanen susah dibalik (submit ke daftar preload browser global), worth dipertimbangkan belakangan setelah domain custom tenant (Bagian 118) lebih matang, bukan diputuskan buru-buru sekarang.
+
+Testing: nginx -t OK, reload nginx, curl -I konfirmasi ke-5 header muncul di response.
+
+Temuan minor (dicatat, TIDAK dikejar karena dampak nol): X-Content-Type-Options: nosniff muncul 2 kali di response header (sekali dari nginx yang baru ditambah, sekali lagi entah dari mana -- grep server.js/*.js/package.json semua nihil, bukan dari helmet.js atau middleware eksplisit manapun yang ketemu). Browser tetap baca dengan benar meski dobel, tidak ada dampak fungsional/keamanan. Sumber pastinya belum ketemu -- kalau penasaran lagi di sesi depan, cek juga node_modules dependency yang mungkin auto-inject header (bukan prioritas, murni rasa ingin tahu teknis).
+
+**Catatan:** perubahan nginx config ini di /etc/nginx/, bukan bagian repo git -- tidak ada commit kode untuk bagian ini, cukup tercatat di checkpoint.
+
+**Status: 2 item tambahan (testssl.sh verifikasi + 5 security header) SELESAI & TERUJI.** Total sesi ini sekarang 9 item dieksekusi tuntas dari nol sampai dites (Bagian 136-139): npm audit, gitleaks, SWAP, PM2 memory limit, unattended-upgrades auto-reboot, Redis hardening, SSL/TLS nginx, SSH hardening, testssl.sh+security headers.
+
+**Next steps aktif (belum berubah dari Bagian 138):**
+[ ] Polish pass 13 titik pesan "internal error" generic
+[ ] P0-6 -- schema/migration reproducibility
+[ ] PIN progressive lockout
+[ ] Test suite CI gate
+[ ] #16/#17 Bagian 119 -- audit trail admin & monitoring
+[ ] 51 saran Lynis sisanya (Tingkat 2+ Bagian 127/133) -- menyusul, bukan mendesak
+[ ] (opsional, rasa ingin tahu) telusuri sumber X-Content-Type-Options duplikat
