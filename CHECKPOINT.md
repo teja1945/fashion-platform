@@ -1417,3 +1417,43 @@ dieksekusi, daripada terlupa karena tidak ditulis.
     ke gap Socket.dev/supply-chain attack yang sudah dicatat Bagian 133
 
 Status: DAFTAR TERCATAT, BELUM ADA EKSEKUSI.
+
+## 136. Eksekusi Tingkat 1 Bagian 127: npm audit + gitleaks -- SELESAI & TERUJI (19 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Ketelitian (setelah 2 hari beruntun cuma
+ngumpulin ide/rencana tanpa eksekusi -- Bagian 127-135 -- sesi ini sengaja
+berhenti nulis ide baru dan ambil 1 item paling murah dari backlog sampai
+tuntas dicoba, bukan didiskusikan lagi).
+
+**Konteks:** item Tingkat 1 dari daftar 11 tools security Bagian 127
+(instant, gak perlu install berat) -- dieksekusi langsung, bukan sekadar
+direncanakan.
+
+**Hasil:**
+- `npm audit` di ~/fashion-platform -> 0 vulnerabilities.
+- gitleaks v8.30.1 (binary langsung dari GitHub releases, bukan lewat
+  package manager) -> `gitleaks git .` scan 185 commit, ~1.27 MB -> 0 leaks
+  found. Menjawab langsung kekhawatiran Bagian 127 soal API key yang
+  beberapa kali dipegang di terminal sepanjang sesi kerja -- terbukti
+  tidak ada yang ke-commit ke git history.
+
+**Kendala teknis kecil:** URL `releases/latest/download/gitleaks_8.21.2_...`
+404 karena nomor versi di URL manual sudah basi (redirect ke v8.30.1 tapi
+nama file tetap pakai versi lama) -- diperbaiki dengan cek nama asset yang
+benar dulu (`gitleaks_8.30.1_linux_x64.tar.gz`) sebelum retry.
+
+**File sementara sudah dibersihkan** (gitleaks.tar.gz, gitleaks-report.json)
+setelah dikonfirmasi hasilnya. Binary `~/gitleaks` dibiarkan terpasang di
+VPS untuk dipakai ulang nanti (Bagian 135: rencana pentest berkala).
+
+**Status: 2 dari 2 item Tingkat 1 Bagian 127 SELESAI & TERUJI, 0 temuan
+di keduanya.** Dicoret dari daftar Tingkat 1 -- lanjut ke Tingkat 2
+(unattended-upgrades, eslint-plugin-security, Lynis, testssl.sh) atau item
+lain sesuai prioritas Teja di sesi berikutnya.
+
+**Next steps aktif tetap seperti Bagian 126 (belum tersentuh):**
+[ ] Polish pass 13 titik pesan "internal error" generic
+[ ] P0-6 -- schema/migration reproducibility
+[ ] PIN progressive lockout
+[ ] Test suite CI gate
+[ ] #16/#17 Bagian 119 -- audit trail admin & monitoring
