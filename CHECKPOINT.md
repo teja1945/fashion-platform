@@ -1457,3 +1457,53 @@ lain sesuai prioritas Teja di sesi berikutnya.
 [ ] PIN progressive lockout
 [ ] Test suite CI gate
 [ ] #16/#17 Bagian 119 -- audit trail admin & monitoring
+
+## 137. Eksekusi lanjutan: SWAP, PM2 memory limit, unattended-upgrades auto-reboot -- SELESAI & TERUJI (19 Agustus 2026)
+
+**Konteks:** melanjutkan Bagian 136 di sesi yang sama.
+
+### 3. SWAP 2GB -- SELESAI & TERUJI
+Dibuat swapfile 2GB (rule 2x RAM, RAM aktual ~957Mi): fallocate + chmod 600 + mkswap + swapon + tambah ke /etc/fstab. Testing: swapoff+swapon -a (simulasi baca fstab) -> swap 2.0Gi balik aktif tanpa reboot beneran. LULUS.
+
+### 4. PM2 max_memory_restart 500M -- SELESAI & TERUJI
+Dibuat ecosystem.config.js (baru, commit ke repo). max_memory_restart 500M dipilih karena heap usage aktual cuma ~19MB (25x headroom). pm2 delete + start ecosystem.config.js + save. Testing: pm2 show konfirmasi 524288000 bytes, curl localhost:3000 -> 404 (hidup normal). Commit 97f8c0a.
+
+### 5. unattended-upgrades auto-reboot -- SELESAI & TERUJI
+Ditemukan sudah aktif dari default Ubuntu 22.04 (bukan setup manual), log konfirmasi auto-patch jalan nyata. Yang belum aktif: Automatic-Reboot. Verifikasi dulu: timezone WIB (aman jam 02:00 bukan jam kerja), redis-server enabled (auto-start abis reboot), tidak ada reboot pending sekarang. Diaktifkan: Automatic-Reboot true, waktu 02:00. Testing: dry-run --debug config valid.
+
+**Next: lanjut Bagian 138 untuk temuan Lynis (Redis/SSL/SSH hardening).**
+
+## 138. Lynis audit + hardening Redis, SSL/TLS nginx, SSH -- SELESAI & TERUJI (19 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Ketelitian (setelah 2 hari Bagian 127-135 cuma ngumpulin ide tanpa eksekusi, sesi ini disiplin tuntasin item demi item sampai dites & commit) dan Rasa Keamanan (3 celah nyata ditutup: Redis tanpa password, TLS lemah, SSH tanpa batas percobaan).
+
+lynis v3.0.7 diinstall, sudo lynis audit system dijalankan. Hasil: Hardening index 65/100, 0 warnings, 54 suggestions. 3 dipilih untuk dieksekusi sekarang (relevan langsung ke stack aktif), 51 sisanya ditunda dengan alasan konkret per kategori (butuh reformat disk, resiko kekunci akses, overhead VPS 1 core/1GB) -- bukan ditunda tanpa alasan.
+
+### Redis requirepass + rename-command CONFIG
+Password digenerate (openssl rand -base64 32), disimpan REDIS_PASSWORD di .env (gitignored, permission 600). redis.conf baris 790 diisi requirepass. sessionStore.js dan rateLimiter.js ditambah password: process.env.REDIS_PASSWORD (commit f9a9680).
+
+Urutan restart WAJIB: (1) pm2 restart --update-env DULU (load password ke kode selagi Redis belum requirepass), BARU (2) systemctl restart redis-server. Kalau kebalik, staff logout paksa massal.
+
+rename-command CONFIG juga ditambahkan (openssl rand -hex 16 buat nama baru), baris baru ditambah di redis.conf baris 807 (tidak menimpa contoh asli).
+
+Testing semua LULUS: login staff sebelum restart Redis berhasil (kode baru jalan) -> redis-cli GET konfirmasi data tersimpan -> restart Redis -> ping tanpa auth -> NOAUTH -> login lagi setelah restart -> berhasil (PM2 reconnect pakai password benar) -> CONFIG GET dengan auth benar -> unknown command (rename berhasil).
+
+Kendala kecil: test login pakai field subdomain di body salah, tenant resolve lewat Host header. Format benar: curl -H "Host: demo.fashion-platform.local" -H "x-api-key: <dari .env>" -d staff_id+pin ke /v1/staff/login.
+
+### SSL/TLS nginx hardening
+nginx.conf baris 32: ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3 diganti jadi cuma TLSv1.2 TLSv1.3 (TLSv1/1.1 deprecated sejak 2020). Ditambah ssl_ciphers eksplisit modern. Testing: nginx -t OK, reload (bukan restart), curl https biasa -> 404 normal, curl --tlsv1.1 --tls-max 1.1 -> 000 (ditolak, terbukti).
+
+### SSH hardening
+sshd_config 4 baris diubah: MaxAuthTries 6->3, AllowAgentForwarding yes->no, X11Forwarding yes->no, Compression delayed->no. SENGAJA TIDAK ganti port SSH default -- resiko kekunci akses, manfaat cuma obscurity, Fail2Ban sudah lebih substantif. Testing: sshd -t OK, reload ssh, koneksi terminal tetap hidup.
+
+**Status akhir sesi: 7 dari 7 item Tingkat 1/2 (Bagian 136+137+138) dieksekusi TUNTAS, bukan cuma direncanakan. Semua di-test dengan bukti konkret, commit terpisah (97f8c0a, f9a9680).**
+
+**Pelajaran penting:** pola 2 hari Bagian 127-135 murni ngumpulin ide tanpa eksekusi, dikoreksi eksplisit oleh Teja di tengah sesi ini. Perbaikan bukan "kerjain semua 54 saran Lynis sekaligus", tapi triase jujur: yang murah+relevan dieksekusi sekarang, sisanya ditunda dengan alasan konkret.
+
+**Next steps aktif (belum berubah dari Bagian 126, 3 item Lynis dicoret dari 51 sisa Bagian 127/133):**
+[ ] Polish pass 13 titik pesan "internal error" generic
+[ ] P0-6 -- schema/migration reproducibility
+[ ] PIN progressive lockout
+[ ] Test suite CI gate
+[ ] #16/#17 Bagian 119 -- audit trail admin & monitoring
+[ ] 51 saran Lynis sisanya (Tingkat 2+ Bagian 127/133) -- menyusul, bukan mendesak
