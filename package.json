@@ -19,5 +19,9 @@
     "ioredis": "^6.0.0",
     "pg": "^8.22.0",
     "ws": "^8.21.1"
+  },
+  "devDependencies": {
+    "eslint": "^10.8.1",
+    "eslint-plugin-security": "^4.0.1"
   }
 }
