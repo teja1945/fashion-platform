@@ -75,7 +75,7 @@ Bug-bug kritis historis (sudah diperbaiki, detail di archive, jangan diulang):
 [x] Dependency pinning / lockfile audit -- SELESAI 20 Agustus 2026, lihat Bagian 146
 [ ] Draft awal ToS + Privacy Policy
 [ ] 2FA akun kritis (Biznet Gio/Supabase/GitHub/registrar) dari SMS ke app-based
-[ ] Tabel tenant_custom_domains (struktur kosong)
+[x] Tabel tenant_custom_domains -- SELESAI 20 Agustus 2026, lihat Bagian 147
 [ ] Lapis 3 audit keamanan manusia (freelance pentester, sebelum tenant nyata pertama)
 [ ] Mandat eksplisit owner→mediator untuk kasus SERIOUS
 [ ] k6 load testing endpoint confirm
@@ -524,5 +524,20 @@ Log radar: 19 Agustus 2026 -- 1 temuan relevan (terkunci), dicatat di atas.
 1. Semua 10 dependency di package.json (dependencies + devDependencies) diverifikasi versi terinstall aktual (lewat npm list), dikonfirmasi 100% cocok dengan versi tertulis di package.json.
 2. Simbol ^ dihapus dari semua entry -- dikunci ke versi persis (contoh: express ^5.2.1 menjadi 5.2.1).
 3. Testing: npm install dijalankan ulang (up to date, tidak ada perubahan), npm audit tetap 0 vulnerabilities, syntax server.js valid, PM2 restart sehat, endpoint API tetap responsif.
+
+**Status: SELESAI & TERUJI.**
+
+## 147. Tabel tenant_custom_domains -- SELESAI & TERUJI (20 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Grosir (struktur database disediakan di depan untuk fitur domain custom tenant -- Bagian 118/124 -- walau belum ada tenant yang butuh sekarang, bukan ditambal belakangan saat mendadak diperlukan).
+
+**Eksekusi:**
+1. Dicek skema tenants dan pola RLS tenant_billing sebagai referensi konsistensi struktur.
+2. Tabel tenant_custom_domains dibuat via Supabase MCP apply_migration: id, tenant_id (FK ke tenants), domain (unique), verification_status, verification_token, ssl_status, verified_at, created_at, updated_at.
+3. RLS diaktifkan dengan policy tenant_isolation standar (current_setting('app.tenant_id')), konsisten semua tabel lain.
+4. Grant app_user: SELECT, INSERT, UPDATE -- TANPA DELETE (histori domain tidak boleh sembarangan hilang, konsisten prinsip audit trail proyek).
+5. Testing: Supabase security advisor 0 temuan. Diverifikasi ulang dari VPS via psql sebagai app_user (bukan lewat MCP yang privileged, sesuai SOP RLS testing) -- tabel bisa diakses normal, 0 rows (kosong, sesuai ekspektasi tabel baru).
+
+**Catatan:** tabel ini murni struktur -- belum ada endpoint/UI yang memakainya. Endpoint verifikasi domain (DNS TXT record check, dst) menyusul saat ada tenant nyata yang butuh custom domain.
 
 **Status: SELESAI & TERUJI.**
