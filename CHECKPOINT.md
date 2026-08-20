@@ -70,7 +70,7 @@ Bug-bug kritis historis (sudah diperbaiki, detail di archive, jangan diulang):
 [x] Restore drill -- SELESAI 19 Agustus 2026, lihat Bagian 142
 [x] Backup off-site 3-2-1 -- SELESAI 20 Agustus 2026, lihat Bagian 143
 [ ] OWASP ZAP dynamic testing ke tenant demo
-[ ] ClamAV scan upload foto
+[ ] ClamAV scan upload foto -- DICOBA & DITUNDA 20 Agustus 2026 (VPS RAM tidak cukup), lihat Bagian 148. Syarat lanjut: VPS upgrade ATAU cloud scanning API
 [x] UptimeRobot + Sentry -- SELESAI 20 Agustus 2026, lihat Bagian 144
 [x] Dependency pinning / lockfile audit -- SELESAI 20 Agustus 2026, lihat Bagian 146
 [ ] Draft awal ToS + Privacy Policy
@@ -541,3 +541,20 @@ Log radar: 19 Agustus 2026 -- 1 temuan relevan (terkunci), dicatat di atas.
 **Catatan:** tabel ini murni struktur -- belum ada endpoint/UI yang memakainya. Endpoint verifikasi domain (DNS TXT record check, dst) menyusul saat ada tenant nyata yang butuh custom domain.
 
 **Status: SELESAI & TERUJI.**
+
+## 148. ClamAV Scan Upload Foto -- DICOBA, DITUNDA (20 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Ketelitian (dicoba nyata sampai ketemu batasan konkret, bukan diasumsikan bisa jalan dari teori -- lalu jujur ditunda dengan alasan terukur, bukan dipaksakan sampai server produksi kena resiko).
+
+**Eksekusi & temuan:**
+1. ClamAV diinstall (clamav, clamav-daemon). clamscan standalone dites -- BUTUH ~1.5 menit tiap panggilan (loading + compiling database virus signature ulang tiap kali), tidak praktis untuk production real-time.
+2. clamd daemon dicoba sebagai solusi (database di-load sekali, stay di memory) -- tapi begitu running, memakai 671MB dari total 957MB RAM VPS (68.5%), plus 808Mi swap terpakai. Sempat membuat CPU 99.5% dan RAM 97.3% saat proses dimatikan (server utama tetap online tapi dalam tekanan berat).
+3. clamd langsung dimatikan begitu ditemukan, VPS pulih ke RAM 151Mi terpakai. ClamAV di-purge total (clamav, clamav-daemon, clamav-freshclam) + autoremove dependency (144MB disk freed).
+
+**Kesimpulan:** ClamAV TIDAK COCOK untuk VPS 1GB RAM ini dalam kondisi sekarang -- baik mode on-demand (terlalu lambat) maupun daemon (terlalu boros RAM, beresiko OOM server produksi). Ini gejala dari masalah lebih besar: VPS sudah dekat kapasitas (sudah dicatat lama sebagai "VPS upgrade considerations").
+
+**DITUNDA sampai salah satu prasyarat terpenuhi:**
+- VPS di-upgrade ke RAM lebih besar, ATAU
+- Pindah ke pendekatan cloud-based scanning API (belum diriset -- perlu evaluasi biaya, rate limit, dependency pihak ketiga)
+
+**Status: TIDAK dieksekusi sekarang, dicatat sebagai next step bersyarat (nunggu VPS upgrade atau alternatif cloud API).**
