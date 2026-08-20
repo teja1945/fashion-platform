@@ -82,7 +82,7 @@ Bug-bug kritis historis (sudah diperbaiki, detail di archive, jangan diulang):
 [ ] Frontend web responsive (item terbesar, belum tersentuh)
 [ ] POST /v1/mediators/:id/backups + /resign, endpoint discrepancy case (reason/eskalasi/resolve), extend trigger_type notifications, tabel tenant_trusted_staff, voice note thread, scanner.html sync ke pipeline final, desain child bundle (BUNDLE_ALLOCATION)
 [ ] Validasi input ketat (zod/joi), audit log admin, monitoring/alerting, enkripsi data sensitif, API_KEY granular, integritas foto bukti
-[ ] Sembunyikan stack trace error dari response publik (ditemukan Bagian 144, saat ini full path server & node_modules kebocor ke client)
+[x] Sembunyikan stack trace error -- SELESAI 20 Agustus 2026, lihat Bagian 145
 [ ] Selidiki DeprecationWarning "client.query() already executing" di worker/realtime relay (belum ketemu sumber pasti, bukan bug fungsional)
 
 ===================================================================
@@ -499,5 +499,19 @@ Log radar: 19 Agustus 2026 -- 1 temuan relevan (terkunci), dicatat di atas.
 3. Testing: endpoint sementara /v1/sentry-test dibuat, sengaja throw Error, dipanggil lewat curl -- dikonfirmasi masuk ke Sentry dashboard DAN email alert terkirim. Endpoint test dihapus setelah verifikasi, dikonfirmasi 404 kembali.
 
 **Temuan sampingan (dicatat, BUKAN bug baru dari Sentry):** response error Express saat ini menampilkan full stack trace (path file server, struktur folder node_modules) ke client publik -- risiko kebocoran informasi internal. Ditambahkan ke next steps aktif.
+
+**Status: SELESAI & TERUJI.**
+
+## 145. Sembunyikan Stack Trace Error dari Response Publik -- SELESAI & TERUJI (20 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Keamanan (informasi internal server -- path file, struktur folder, dependency -- tidak lagi bocor ke siapapun yang memicu error dari luar).
+
+**Konteks:** ditemukan sebagai efek samping saat testing Sentry (Bagian 144) -- response error menampilkan full stack trace termasuk path lengkap server dan node_modules.
+
+**Eksekusi:**
+1. Root cause: NODE_ENV belum pernah diset sama sekali di .env -- Express secara default menampilkan stack trace kalau NODE_ENV bukan "production".
+2. Ditambahkan NODE_ENV=production ke .env.
+3. Dibuat .env.example (belum pernah ada sebelumnya) sebagai template lengkap semua env vars yang dipakai proyek (DATABASE_URL, SUPABASE_URL/SECRET_KEY, REDIS_PASSWORD, API_KEY, SENTRY_DSN, NODE_ENV, dst) tanpa nilai asli -- supaya next dev/sesi tidak perlu menebak dari kode.
+4. Testing: endpoint sementara dibuat sengaja throw Error, dikonfirmasi response berubah dari full stack trace menjadi "Internal Server Error" generik. Endpoint test dihapus, dikonfirmasi 404.
 
 **Status: SELESAI & TERUJI.**
