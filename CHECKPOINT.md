@@ -558,3 +558,39 @@ Log radar: 19 Agustus 2026 -- 1 temuan relevan (terkunci), dicatat di atas.
 - Pindah ke pendekatan cloud-based scanning API (belum diriset -- perlu evaluasi biaya, rate limit, dependency pihak ketiga)
 
 **Status: TIDAK dieksekusi sekarang, dicatat sebagai next step bersyarat (nunggu VPS upgrade atau alternatif cloud API).**
+
+## 149. VPS RAM Upgrade -- SS 2.1 (2GB RAM) -- SELESAI & TERUJI (20 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Ketelitian (verifikasi tiap tahap sebelum lanjut -- backup dulu, konfirmasi prorata ke support sebelum bayar, cek RAM/PM2/endpoint setelah resize, bukan asumsi "pasti berhasil").
+
+**Eksekusi:**
+1. Backup manual dijalankan sebelum resize (`fashion_platform_20260820_104241.sql.gz`, lokal + off-site).
+2. Konfirmasi ke support Biznet Gio: resize dikenakan prorata untuk sisa masa aktif, due date/siklus billing TETAP sama (bukan reset), invoice berikutnya baru pakai harga paket baru penuh.
+3. Resize dari XS 1.1 (1 Core, 1GB RAM) ke SS 2.1 (1 Core, 2GB RAM) via portal Biznet Gio, dibayar prorata.
+4. Resize berhasil in-place tanpa perlu Stop/Start manual -- langsung aktif setelah restart otomatis.
+
+**Verifikasi:**
+- RAM: 957Mi -> 1.9Gi (available: 656Mi -> 1.5Gi)
+- Swap: bersih total (0B terpakai, sisa 118Mi dari insiden ClamAV lama ikut terbersihkan)
+- PM2: status online, auto-restart jalan normal tanpa intervensi manual (36.9mb -> 85.1mb, wajar karena fresh restart)
+- Endpoint `/v1/whoami` merespons benar dengan tenant resolution utuh (tenantId + subdomain valid)
+
+**Status: SELESAI & TERUJI.**
+
+## 150. ClamAV -- Percobaan Kedua Pasca Upgrade RAM -- TERINSTALL, BELUM DIINTEGRASI (20 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Ketelitian (retest asumsi lama setelah kondisi berubah -- RAM dobel -- alih-alih menganggap kesimpulan lama otomatis masih berlaku selamanya).
+
+**Konteks:** Bagian 148 mendokumentasikan ClamAV ditunda karena RAM VPS 1GB tidak cukup. Setelah Bagian 149 (upgrade ke 2GB), dicoba ulang.
+
+**Eksekusi & temuan:**
+1. ClamAV diinstall ulang dari nol (clamav, clamav-daemon, clamav-freshclam). Database virus ter-update otomatis (main.cvd 85M + daily.cvd 23M, versi 28098 per 20 Agustus 2026).
+2. clamd daemon dicoba: berhasil nyala stabil, RAM terpakai 963.5M (vs 671MB di VPS lama) -- available tersisa 631Mi dari 1.9Gi total. Tes EICAR berhasil detect (`Eicar-Test-Signature FOUND`, 0.009 detik).
+3. Dipertimbangkan ulang: 963.5M untuk 1 daemon dianggap tidak proporsional (>50% RAM total) mengingat belum ada tenant nyata/kebutuhan real-time scanning. Daemon dimatikan & di-disable (service + socket), RAM available kembali ke 1.5Gi.
+4. clamscan on-demand dites sebagai alternatif: berhasil detect EICAR, tapi makan waktu 25.956 detik per scan (loading + compiling database dari nol tiap panggilan) -- dianggap terlalu lambat untuk endpoint upload real-time kalau nanti diintegrasi sync.
+
+**Keputusan:** ClamAV **sengaja dibiarkan terinstall tapi tidak aktif** (daemon off, freshclam tetap jalan untuk jaga database tetap update). Alasan: belum ada tenant nyata yang butuh proteksi upload aktif sekarang, jadi trade-off RAM (daemon) vs kecepatan (on-demand) belum perlu diputuskan final -- infrastruktur sudah siap dipanggil kapan saja saat integrasi ke endpoint `/v1/photos` dikerjakan.
+
+**Next step (belum dieksekusi):** Integrasi ke server.js di endpoint `/v1/photos` -- perlu keputusan arsitektur: scan sync (blocking, lambat kalau on-demand) vs scan async (foto diterima dulu, di-scan di background, di-flag kalau infected setelahnya). Cenderung ke arah async + on-demand clamscan sebagai kombinasi paling seimbang untuk RAM & UX, tapi belum final -- menunggu giliran di antrian next steps.
+
+**Status: TERINSTALL & FUNGSIONAL, BELUM DIINTEGRASI KE KODE.**
