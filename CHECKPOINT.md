@@ -71,7 +71,7 @@ Bug-bug kritis historis (sudah diperbaiki, detail di archive, jangan diulang):
 [x] Backup off-site 3-2-1 -- SELESAI 20 Agustus 2026, lihat Bagian 143
 [ ] OWASP ZAP dynamic testing ke tenant demo
 [ ] ClamAV scan upload foto
-[ ] UptimeRobot + Sentry
+[x] UptimeRobot + Sentry -- SELESAI 20 Agustus 2026, lihat Bagian 144
 [ ] Dependency pinning / lockfile audit
 [ ] Draft awal ToS + Privacy Policy
 [ ] 2FA akun kritis (Biznet Gio/Supabase/GitHub/registrar) dari SMS ke app-based
@@ -82,6 +82,7 @@ Bug-bug kritis historis (sudah diperbaiki, detail di archive, jangan diulang):
 [ ] Frontend web responsive (item terbesar, belum tersentuh)
 [ ] POST /v1/mediators/:id/backups + /resign, endpoint discrepancy case (reason/eskalasi/resolve), extend trigger_type notifications, tabel tenant_trusted_staff, voice note thread, scanner.html sync ke pipeline final, desain child bundle (BUNDLE_ALLOCATION)
 [ ] Validasi input ketat (zod/joi), audit log admin, monitoring/alerting, enkripsi data sensitif, API_KEY granular, integritas foto bukti
+[ ] Sembunyikan stack trace error dari response publik (ditemukan Bagian 144, saat ini full path server & node_modules kebocor ke client)
 [ ] Selidiki DeprecationWarning "client.query() already executing" di worker/realtime relay (belum ketemu sumber pasti, bukan bug fungsional)
 
 ===================================================================
@@ -485,3 +486,18 @@ Log radar: 19 Agustus 2026 -- 1 temuan relevan (terkunci), dicatat di atas.
 5. Testing end-to-end: ~/backup-db.sh dijalankan manual, backup lokal DAN off-site sukses dalam 1 kali jalan, terverifikasi lewat rclone lsl.
 
 **Status: SELESAI & TERUJI.** Cron harian (jam 3 pagi) otomatis backup ke 2 lokasi mulai malam ini, tanpa perlu disentuh manual lagi.
+
+## 144. UptimeRobot + Sentry Error Tracking -- SELESAI & TERUJI (20 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Keamanan (backend sekarang punya deteksi dini kalau down atau error, bukan menunggu tenant lapor duluan) dan Rasa Ketelitian (fungsi diverifikasi end-to-end lewat endpoint test sengaja dipicu, bukan diasumsikan jalan cuma karena install sukses -- endpoint test dihapus lagi setelah diverifikasi).
+
+**Konteks:** ditandai "murah sekarang, mahal kalau nunggu ada trafik" (Bagian 127) -- dieksekusi sebelum ada tenant nyata pertama.
+
+**Eksekusi:**
+1. UptimeRobot: akun dibuat, monitor HTTP(s) dipasang untuk https://api.benangrasa.com, alert ke email pemilik.
+2. Sentry: project "fashion-platform-backend" dibuat di organisasi Sentry "benangrasa" (ternyata sudah pernah ada dari percobaan lama, belum pernah dipakai). @sentry/node diinstall (0 vulnerabilities), Sentry.init() dipasang di baris paling awal server.js (sebelum require lain), Sentry.setupExpressErrorHandler(app) dipasang setelah semua routes. DSN disimpan di .env (SENTRY_DSN), tidak pernah di-hardcode atau ditampilkan ke chat/log.
+3. Testing: endpoint sementara /v1/sentry-test dibuat, sengaja throw Error, dipanggil lewat curl -- dikonfirmasi masuk ke Sentry dashboard DAN email alert terkirim. Endpoint test dihapus setelah verifikasi, dikonfirmasi 404 kembali.
+
+**Temuan sampingan (dicatat, BUKAN bug baru dari Sentry):** response error Express saat ini menampilkan full stack trace (path file server, struktur folder node_modules) ke client publik -- risiko kebocoran informasi internal. Ditambahkan ke next steps aktif.
+
+**Status: SELESAI & TERUJI.**
