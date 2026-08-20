@@ -68,7 +68,7 @@ Bug-bug kritis historis (sudah diperbaiki, detail di archive, jangan diulang):
 5. NEXT STEPS AKTIF
 ===================================================================
 [x] Restore drill -- SELESAI 19 Agustus 2026, lihat Bagian 142
-[ ] Backup off-site 3-2-1
+[x] Backup off-site 3-2-1 -- SELESAI 20 Agustus 2026, lihat Bagian 143
 [ ] OWASP ZAP dynamic testing ke tenant demo
 [ ] ClamAV scan upload foto
 [ ] UptimeRobot + Sentry
@@ -470,3 +470,18 @@ Log radar: 19 Agustus 2026 -- 1 temuan relevan (terkunci), dicatat di atas.
 **Kesimpulan:** Backup harian TERBUKTI bisa dipulihkan penuh, bukan cuma asumsi. Proses restore dari file `.sql.gz` sampai database siap pakai memakan waktu kurang dari 5 menit untuk ukuran data saat ini.
 
 **Status: SELESAI & TERUJI.** Item pertama dari 15 next steps aktif (bagian 5) tercoret.
+
+## 143. Backup Off-site 3-2-1 (Google Drive via rclone) -- SELESAI & TERUJI (20 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Grosir (backup sekarang otomatis ada di 2 lokasi terpisah tanpa disentuh manual lagi ke depan) dan Rasa Ketelitian (2 kali gagal setup ditelusuri sampai akar masalah, bukan ditinggal).
+
+**Konteks:** Backup harian selama ini cuma ada di VPS itu sendiri -- kalau VPS bermasalah, restore drill (Bagian 142) jadi tidak berguna karena sumber backup ikut hilang.
+
+**Eksekusi:**
+1. rclone diinstall. Client ID default rclone gagal 2 kali: Error 400 invalid_request (diblokir Google), lalu setelah pindah ke Termux HP kena Error 403 rateLimitExceeded (kuota bersama jutaan user rclone penuh).
+2. Solusi: bikin Google Cloud project + OAuth Client ID sendiri (project "rclone-backup"), scope drive.file (rclone cuma akses file yang dia buat sendiri). Sempat kena Error 403 access_denied karena app masih status Testing -- diperbaiki dengan menambahkan email sendiri sebagai Test User di OAuth consent screen.
+3. Ditemukan: folder yang dibuat client ID default jadi tidak terlihat oleh client ID baru (konsekuensi isolasi scope drive.file, bukan bug) -- folder dibuat ulang.
+4. Script ~/backup-db.sh diupdate: setelah backup lokal, otomatis rclone copy ke gdrive_backup:fashion-platform-backups/, plus rclone delete file di Drive yang lebih tua dari 30 hari (retensi off-site lebih panjang dari lokal 14 hari).
+5. Testing end-to-end: ~/backup-db.sh dijalankan manual, backup lokal DAN off-site sukses dalam 1 kali jalan, terverifikasi lewat rclone lsl.
+
+**Status: SELESAI & TERUJI.** Cron harian (jam 3 pagi) otomatis backup ke 2 lokasi mulai malam ini, tanpa perlu disentuh manual lagi.
