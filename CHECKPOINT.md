@@ -72,7 +72,7 @@ Bug-bug kritis historis (sudah diperbaiki, detail di archive, jangan diulang):
 [ ] OWASP ZAP dynamic testing ke tenant demo
 [ ] ClamAV scan upload foto
 [x] UptimeRobot + Sentry -- SELESAI 20 Agustus 2026, lihat Bagian 144
-[ ] Dependency pinning / lockfile audit
+[x] Dependency pinning / lockfile audit -- SELESAI 20 Agustus 2026, lihat Bagian 146
 [ ] Draft awal ToS + Privacy Policy
 [ ] 2FA akun kritis (Biznet Gio/Supabase/GitHub/registrar) dari SMS ke app-based
 [ ] Tabel tenant_custom_domains (struktur kosong)
@@ -513,5 +513,16 @@ Log radar: 19 Agustus 2026 -- 1 temuan relevan (terkunci), dicatat di atas.
 2. Ditambahkan NODE_ENV=production ke .env.
 3. Dibuat .env.example (belum pernah ada sebelumnya) sebagai template lengkap semua env vars yang dipakai proyek (DATABASE_URL, SUPABASE_URL/SECRET_KEY, REDIS_PASSWORD, API_KEY, SENTRY_DSN, NODE_ENV, dst) tanpa nilai asli -- supaya next dev/sesi tidak perlu menebak dari kode.
 4. Testing: endpoint sementara dibuat sengaja throw Error, dikonfirmasi response berubah dari full stack trace menjadi "Internal Server Error" generik. Endpoint test dihapus, dikonfirmasi 404.
+
+**Status: SELESAI & TERUJI.**
+
+## 146. Dependency Pinning -- SELESAI & TERUJI (20 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Keamanan (menutup gap supply-chain attack yang dicatat Bagian 133/135 -- npm install tidak lagi bisa diam-diam menarik versi baru yang belum divalidasi).
+
+**Eksekusi:**
+1. Semua 10 dependency di package.json (dependencies + devDependencies) diverifikasi versi terinstall aktual (lewat npm list), dikonfirmasi 100% cocok dengan versi tertulis di package.json.
+2. Simbol ^ dihapus dari semua entry -- dikunci ke versi persis (contoh: express ^5.2.1 menjadi 5.2.1).
+3. Testing: npm install dijalankan ulang (up to date, tidak ada perubahan), npm audit tetap 0 vulnerabilities, syntax server.js valid, PM2 restart sehat, endpoint API tetap responsif.
 
 **Status: SELESAI & TERUJI.**
