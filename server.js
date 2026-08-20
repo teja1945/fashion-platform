@@ -1,3 +1,10 @@
+require("dotenv").config();
+const Sentry = require("@sentry/node");
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV || "production",
+});
+
 const express = require("express");
 const http = require("http");
 const { WebSocketServer } = require("ws");
@@ -2047,6 +2054,8 @@ async function setupRealtimeRelay() {
     }
   }
 }
+
+Sentry.setupExpressErrorHandler(app);
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
