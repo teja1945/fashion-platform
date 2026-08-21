@@ -594,3 +594,62 @@ Log radar: 19 Agustus 2026 -- 1 temuan relevan (terkunci), dicatat di atas.
 **Next step (belum dieksekusi):** Integrasi ke server.js di endpoint `/v1/photos` -- perlu keputusan arsitektur: scan sync (blocking, lambat kalau on-demand) vs scan async (foto diterima dulu, di-scan di background, di-flag kalau infected setelahnya). Cenderung ke arah async + on-demand clamscan sebagai kombinasi paling seimbang untuk RAM & UX, tapi belum final -- menunggu giliran di antrian next steps.
 
 **Status: TERINSTALL & FUNGSIONAL, BELUM DIINTEGRASI KE KODE.**
+
+## 151. 2FA Akun Kritis -- GitHub, Supabase, Biznet Gio (via Google SSO) -- SELESAI & TERUJI (21 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Keamanan (3 titik akses tunggal paling kritis -- repo kode, database tenant, VPS+domain -- sekarang wajib verifikasi kedua, bukan cuma password) dan Rasa Ketelitian (status "Google OTP Enabled" di Biznet Gio awalnya menyesatkan -- tampil hijau tapi backend masih nolak login dengan pesan "You need to setup OTP first" -- tidak diterima mentah, ditelusuri sampai dikonfirmasi ke Support akar masalahnya).
+
+**Konteks:** item ini sudah lama dicatat di next steps aktif (Bagian 5) tapi belum dieksekusi. Dikerjakan tuntas di sesi ini, akun demi akun, satu-langkah-satu-waktu.
+
+### GitHub -- SELESAI & TERUJI
+2FA diaktifkan via Settings -> Password and authentication -> Two-factor authentication -> Authenticator app (manual setup key, QR sulit di-scan). Recovery codes (10 kode) didownload dan dipindahkan ke Google Drive (folder "Recovery Codes - PENTING"), dihapus dari folder Download HP setelah dikonfirmasi ter-upload. Preferred 2FA method: Authenticator app.
+
+### Supabase -- SELESAI & TERUJI
+MFA diaktifkan via Account Preferences -> Security -> Add app (manual key, QR sulit di-scan). Terverifikasi ter-add dengan timestamp 20 Agustus 2026, 22:46:22 (+0700).
+
+### Biznet Gio + domain (benangrasa.com) -- SELESAI & TERUJI, dengan temuan penting
+Percobaan pertama gagal ("wrong token") karena spasi ikut ter-paste ke key authenticator app -- diperbaiki dengan menghapus spasi sebelum paste ulang.
+
+**Temuan:** setelah setup "berhasil" (notifikasi hijau "2FA completed" muncul 2 kali di 2 percobaan terpisah), status tetap menampilkan pesan merah "You need to setup OTP first" dan login ulang (termasuk setelah clear cookies + incognito) tetap tidak pernah diminta kode OTP.
+
+**Root cause (dikonfirmasi via Support Biznet Gio):** akun ini login menggunakan SSO Google (Google -- Linked), bukan email+password. OTP di portal Biznet Gio HANYA berlaku untuk login email+password -- untuk akun yang daftar/login via SSO Google, OTP portal tidak akan pernah diminta. Ini BUKAN bug, melainkan behavior yang memang seperti itu di sisi Biznet Gio.
+
+**Tindak lanjut yang benar:** proteksi 2FA yang relevan dipindah ke akun Google itu sendiri (suarakyat1945@gmail.com), karena itu titik otentikasi asli untuk SSO. Dicek: Verifikasi 2 Langkah akun Google itu ternyata BELUM aktif sebelumnya. Diaktifkan via myaccount.google.com -> Keamanan -> Verifikasi 2 Langkah -> Aplikasi Authenticator (manual key, QR sulit di-scan). Dikonfirmasi aktif: "Verifikasi 2 Langkah -- Aktif sejak 09.50" (21 Agustus 2026). 10 kode cadangan (backup codes) disimpan via screenshot ke folder Google Drive yang sama ("Recovery Codes - PENTING").
+
+**Pelajaran untuk next steps sejenis:** kalau ada akun lain yang login-nya juga via SSO (Google/GitHub/dst), 2FA yang perlu diperkuat adalah 2FA di provider SSO-nya (Google/GitHub), bukan di portal yang menumpang SSO tersebut -- toggle 2FA di portal tumpangan itu sendiri bisa jadi tidak relevan atau menyesatkan (seperti kasus Biznet Gio ini).
+
+**Status: 3 dari 3 akun (GitHub, Supabase, Biznet Gio+domain via Google SSO) SELESAI & TERUJI, recovery codes semua tersimpan di 2 lokasi (device + Google Drive).**
+
+**Next steps aktif (belum berubah dari Bagian 150, item 2FA dicoret dari next steps):**
+[ ] OWASP ZAP dynamic testing ke tenant demo
+[ ] ClamAV integrasi ke endpoint /v1/photos (sync vs async, lihat Bagian 150)
+[ ] Draft awal ToS + Privacy Policy
+[ ] Lapis 3 audit keamanan manusia (freelance pentester)
+[ ] Mandat eksplisit owner->mediator kasus SERIOUS
+[ ] k6 load testing endpoint confirm
+[ ] Frontend web responsive -- PRIORITAS BERIKUTNYA (lihat catatan cross-check ChatGPT di bawah)
+[ ] Backend inventory (CRUD lengkap, baru ada function reserve_fabric_inventory)
+[ ] Dashboard Owner
+[ ] Polish pass 13 titik pesan "internal error" generic
+[ ] P0-6 -- schema/migration reproducibility
+[ ] PIN progressive lockout
+[ ] Test suite CI gate
+[ ] #16/#17 -- audit trail admin & monitoring
+[ ] 51 saran Lynis sisanya
+
+## 152. Cross-check ChatGPT -- Penilaian Ulang Status Proyek (21 Agustus 2026)
+
+**Konteks:** cross-check independen ke ChatGPT (sesuai prinsip kolaborasi -- keputusan berisiko tinggi diverifikasi silang), mengecek langsung ke GitHub/Supabase/Vercel per 20 Agustus 2026.
+
+**Temuan utama:**
+- Supabase sudah bukan schema kosong: 2 tenant, 5 staff, 2 orders, 1 production job, 19 production events, 8 stage submissions, 4 foto produksi, 5 discrepancy cases, 24 pesan discrepancy -- semua tabel utama RLS-enabled, security advisor 0 lint.
+- Performance advisor Supabase menunjukkan banyak unindexed foreign keys dan RLS init-plan warning (current_setting() dievaluasi ulang per-row, solusi umum: bungkus dengan (select ...)) -- ini masalah efisiensi query untuk skala besar, BUKAN celah keamanan. Belum mendesak karena data masih kecil.
+- Unused indexes terdeteksi -- SENGAJA belum dihapus, database masih terlalu kecil untuk menyimpulkan index itu tidak diperlukan.
+- Vercel: deployment production READY, tapi framework metadata masih null dan checkpoint sendiri mengonfirmasi frontend web responsive belum tersentuh -- READY di level infra tidak sama dengan produk frontend selesai.
+- Penilaian ChatGPT: backend/data architecture 9/10, security/infrastructure 8.5/10, production logic 8.5-9/10, database maturity 8.5/10, frontend/UX 2-3/10, commercial validation ~1/10.
+
+**Rekomendasi ChatGPT (disetujui sebagai arah ke depan):** hentikan dulu penambahan security hardening berlapis-lapis kecuali ada vulnerability nyata -- backend sudah mendekati fondasi production-grade, tapi bottleneck sekarang bukan lagi "bisa bikin backend", melainkan "bisa mengubah backend ini jadi aplikasi yang dipakai satu brand setiap hari". Prioritas berikutnya: backend inventory (belum ada CRUD lengkap, baru function reserve_fabric_inventory), Dashboard Owner, baru frontend web responsive secara keseluruhan.
+
+**Keputusan Teja:** selesaikan dulu semua item yang sudah terbuka di next steps aktif SEBELUM pindah ke scope backend inventory/dashboard owner/frontend -- disiplin tidak menumpuk pekerjaan baru di atas yang belum tuntas.
+
+**Status: dicatat sebagai arah jangka menengah, belum ada eksekusi kode dari cross-check ini.**
