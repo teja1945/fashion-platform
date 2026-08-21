@@ -653,3 +653,40 @@ Percobaan pertama gagal ("wrong token") karena spasi ikut ter-paste ke key authe
 **Keputusan Teja:** selesaikan dulu semua item yang sudah terbuka di next steps aktif SEBELUM pindah ke scope backend inventory/dashboard owner/frontend -- disiplin tidak menumpuk pekerjaan baru di atas yang belum tuntas.
 
 **Status: dicatat sebagai arah jangka menengah, belum ada eksekusi kode dari cross-check ini.**
+
+## 153. Polish Pass -- 13 Pesan "internal error" Generic Diganti Manusiawi -- SELESAI & TERUJI (21 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Copywriting (13 titik pesan error generic "internal error" yang gak informatif dan gak manusiawi diganti jadi bahasa yang ngomong kaya manusia, konsisten sama pola yang udah ada di titik lain seperti baris 1117/1201/dst) dan Rasa Ketelitian (tiap baris diverifikasi persis via assertion-based script sebelum ditulis -- gak ada yang ditimpa asal tebak nomor baris -- dan hasil akhirnya dites nyata lewat endpoint sungguhan, bukan diasumsikan berhasil cuma karena "SYNTAX OK").
+
+**Konteks:** item ini sudah lama dicatat di checklist keamanan (Bagian 6) sebagai next steps aktif tapi belum dieksekusi.
+
+**Eksekusi:**
+1. grep semua titik `res.status(500).json({ error: "internal error" })` di server.js -> ditemukan persis 13 titik, tersebar di endpoint: /v1/events, /v1/orders, /v1/staff/list, /v1/mediators, /v1/staff/offboard, /v1/lock/acquire, /v1/lock/release, /v1/lock/force-unlock, /v1/stage-submissions, /v1/stage-submissions/:id/confirm, /v1/photos, /v1/notifications, /v1/notifications/:id/read.
+2. Karena ke-13 baris isinya identik persis (tidak bisa dibedakan via str_replace biasa), dibuat script Python assertion-based (`fix_error_messages.py`) yang mapping tiap nomor baris ke pesan pengganti spesifik konteks endpoint-nya. Script mengecek SEMUA 13 baris persis sesuai ekspektasi dulu sebelum menulis satu pun perubahan ke file -- kalau ada 1 assertion gagal, script berhenti total tanpa partial-write.
+3. Pesan pengganti disesuaikan konteks tiap endpoint (bukan template sama rata) -- misal /v1/lock/force-unlock (endpoint darurat) dikasih instruksi tambahan "atau langsung kontak admin kalau masih macet" karena situasinya biasanya sudah agak darurat (staff kejebak).
+
+**Testing:**
+- `node -c server.js` -> SYNTAX OK.
+- `git diff` direview penuh, 13 perubahan sesuai rencana, tidak ada yang meleset endpoint.
+- `pm2 restart --update-env` -> online normal.
+- Bukti nyata (bukan asumsi): endpoint `/v1/events` sengaja dipicu error dengan `order_id` bukan UUID valid -> response berubah dari `"internal error"` jadi `"Waduh, data event-nya gagal kesimpen. Coba ulangi beberapa saat lagi ya."`. Endpoint lain tidak dites satu-satu secara terpisah karena pola perubahannya identik dan sudah diverifikasi via assertion script yang sama.
+
+**Commit:** 0f137ea (server.js, 13 insertion + 13 deletion).
+
+**Status: SELESAI & TERUJI.**
+
+**Next steps aktif (belum berubah dari Bagian 152, item polish pass dicoret):**
+[ ] OWASP ZAP dynamic testing ke tenant demo
+[ ] ClamAV integrasi ke endpoint /v1/photos (sync vs async, lihat Bagian 150)
+[ ] Draft awal ToS + Privacy Policy
+[ ] Lapis 3 audit keamanan manusia (freelance pentester)
+[ ] Mandat eksplisit owner->mediator kasus SERIOUS
+[ ] k6 load testing endpoint confirm
+[ ] P0-6 -- schema/migration reproducibility
+[ ] PIN progressive lockout
+[ ] Test suite CI gate
+[ ] #16/#17 -- audit trail admin & monitoring
+[ ] 51 saran Lynis sisanya
+[ ] Frontend web responsive -- menyusul setelah next steps di atas tuntas (Bagian 152)
+[ ] Backend inventory (CRUD lengkap) -- menyusul setelah next steps di atas tuntas (Bagian 152)
+[ ] Dashboard Owner -- menyusul setelah next steps di atas tuntas (Bagian 152)
