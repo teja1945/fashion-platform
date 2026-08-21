@@ -690,3 +690,44 @@ Percobaan pertama gagal ("wrong token") karena spasi ikut ter-paste ke key authe
 [ ] Frontend web responsive -- menyusul setelah next steps di atas tuntas (Bagian 152)
 [ ] Backend inventory (CRUD lengkap) -- menyusul setelah next steps di atas tuntas (Bagian 152)
 [ ] Dashboard Owner -- menyusul setelah next steps di atas tuntas (Bagian 152)
+
+## 154. PIN Progressive Lockout -- SELESAI & TERUJI (21 Agustus 2026)
+
+**Rasa yang dipenuhi:** Rasa Keamanan (rate limit lama cuma nahan spam CEPAT -- 5x/30 detik lalu reset otomatis -- penyerang sabar bisa terus nyoba pelan-pelan tanpa batas; lockout progresif ini nutup celah itu dengan hukuman yang makin berat tiap gagal beruntun) dan Rasa Customer Service (staff yang baru kena kunci langsung dikasih tau di percobaan yang sama -- bukan nunggu dia coba lagi baru ketahuan -- plus pesan manusiawi nyebut sisa waktu jelas, bukan 429 generik).
+
+**Konteks:** item ini sudah lama dicatat di next steps aktif (Bagian 5/151) tapi belum dieksekusi.
+
+**Desain:** lapis TAMBAHAN di atas rate limit fixed-window yang sudah ada (rateLimiter.js), bukan pengganti. Gagal ke-1 s/d ke-4: biasa (401). Gagal ke-5: kunci 1 menit. Ke-6: 5 menit. Ke-7: 30 menit. Ke-8 dst: 60 menit (plafon). PIN benar sekali -> reset total ke 0. Counter auto-expire 24 jam TTL di-refresh tiap gagal (bukan cuma sekali di awal) -- supaya "24 jam" dihitung dari percobaan TERAKHIR, bukan pertama (bug ini ketemu & diperbaiki sebelum diapply, saat review draft).
+
+**Implementasi:**
+1. `rateLimiter.js` ditambah 3 fungsi baru (checkProgressiveLockout, recordFailedPinAttempt, resetLockout), konsisten pola fail-open dengan checkRateLimit yang sudah ada (Redis down -> lockout dianggap tidak aktif, PIN yang benar tetap syarat utama).
+2. `server.js` endpoint /v1/staff/login diupdate via script assertion-based (fix_login_lockout.py, pola sama Bagian 153) -- checkProgressiveLockout dicek PALING AWAL (sebelum rate limit lama, hemat resource kalau memang lagi dikunci), recordFailedPinAttempt dipanggil pas PIN salah, resetLockout dipanggil pas PIN benar sebelum bikin sesi.
+
+**Testing end-to-end (bukti nyata, staff Gudang Demo, PIN sengaja dibuat salah):**
+- Gagal ke-1 s/d ke-4 -> 401 biasa. TERBUKTI.
+- Gagal ke-5 -> langsung 429 "Coba lagi dalam 1 menit ya" di percobaan yang SAMA (justLocked terdeteksi real-time, bukan baru ketahuan di percobaan berikutnya). TERBUKTI.
+- Selama masih terkunci, percobaan lanjut tetap 429 (diverifikasi lewat curl beruntun). TERBUKTI.
+- Setelah masa kunci 1 menit lewat (dikonfirmasi lewat Redis KEYS -- key lockout:until:* sudah auto-expire sendiri), gagal lagi -> naik ke tahap berikutnya, 429 "5 menit" (progresi tahap benar, bukan reset ke tahap 1 lagi). TERBUKTI.
+- Reset PIN staff sementara ke nilai testing via psql (SET app.tenant_id + UPDATE pin_hash, pola SOP RLS existing) -- dicoba login PIN benar SELAGI masih dalam masa kunci tahap 2 -> tetap 429 (lockout ngeblok di gerbang paling awal, gak peduli PIN benar/salah). TERBUKTI, sesuai desain.
+- Key lockout dihapus manual (situasi testing), retry PIN benar dari kondisi netral -> HTTP 200, token diterima. TERBUKTI.
+- Cek Redis KEYS "lockout:*aa322173*" setelah itu -> kosong total, resetLockout terbukti bersihin count DAN until sekaligus, bukan asumsi dari baca kode saja. TERBUKTI.
+- PIN staff dikembalikan ke nilai standar 1234 (CHECKPOINT_LOCAL.md) setelah testing selesai -- tidak ada sisa perubahan data.
+
+**Commit:** 5bea72d (rateLimiter.js +93, server.js +24). fix_login_lockout.py sengaja TIDAK ikut commit (pola sama fix_error_messages.py Bagian 153 -- script sekali-pakai, bukan bagian codebase permanen).
+
+**Status: SELESAI & TERUJI, seluruh skenario dibuktikan lewat testing langsung (bukan code review semata).**
+
+**Next steps aktif (belum berubah dari Bagian 153, item PIN progressive lockout dicoret):**
+[ ] OWASP ZAP dynamic testing ke tenant demo
+[ ] ClamAV integrasi ke endpoint /v1/photos (sync vs async, lihat Bagian 150)
+[ ] Draft awal ToS + Privacy Policy
+[ ] Lapis 3 audit keamanan manusia (freelance pentester)
+[ ] Mandat eksplisit owner->mediator kasus SERIOUS
+[ ] k6 load testing endpoint confirm
+[ ] P0-6 -- schema/migration reproducibility
+[ ] Test suite CI gate
+[ ] #16/#17 -- audit trail admin & monitoring
+[ ] 51 saran Lynis sisanya
+[ ] Frontend web responsive -- menyusul setelah next steps di atas tuntas (Bagian 152)
+[ ] Backend inventory (CRUD lengkap) -- menyusul setelah next steps di atas tuntas (Bagian 152)
+[ ] Dashboard Owner -- menyusul setelah next steps di atas tuntas (Bagian 152)
