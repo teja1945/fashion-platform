@@ -135,7 +135,7 @@ app.post("/v1/events", tenantResolver, requireApiKey, async (req, res) => {
     res.status(result.httpStatus).json(result.body);
   } catch (err) {
     console.error("ingestion error:", err);
-    res.status(500).json({ error: "internal error" });
+    res.status(500).json({ error: "Waduh, data event-nya gagal kesimpen. Coba ulangi beberapa saat lagi ya." });
   }
 });
 
@@ -158,7 +158,7 @@ app.get("/v1/orders", tenantResolver, requireApiKey, async (req, res) => {
     res.json(rows.rows);
   } catch (err) {
     console.error("orders list error:", err);
-    res.status(500).json({ error: "internal error" });
+    res.status(500).json({ error: "Waduh, gagal ambil data order. Coba refresh ulang ya." });
   } finally {
     client.release();
   }
@@ -211,7 +211,7 @@ app.get("/v1/staff/list", tenantResolver, requireApiKey, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error("staff list error:", err);
-    res.status(500).json({ error: "internal error" });
+    res.status(500).json({ error: "Waduh, gagal ambil daftar staff. Coba refresh ulang ya." });
   } finally {
     client.release();
   }
@@ -303,7 +303,7 @@ app.post("/v1/mediators", tenantResolver, requireApiKey, requireStaffSession, as
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error("mediator assign error:", err);
-    res.status(500).json({ error: "internal error" });
+    res.status(500).json({ error: "Waduh, gagal nambahin mediator. Coba cek koneksi lo dan ulangi ya." });
   } finally {
     client.release();
   }
@@ -333,7 +333,7 @@ app.post("/v1/staff/offboard", tenantResolver, requireApiKey, requireStaffSessio
     res.json({ ok: true, staff: result.rows[0], revoked_sessions: revokedCount });
   } catch (err) {
     console.error("offboard error:", err);
-    res.status(500).json({ error: "internal error" });
+    res.status(500).json({ error: "Waduh, gagal nonaktifin staff-nya. Coba ulangi beberapa saat lagi ya." });
   } finally {
     client.release();
   }
@@ -477,7 +477,7 @@ app.post("/v1/lock/acquire", tenantResolver, requireApiKey, requireStaffSession,
     res.status(result.httpStatus).json(result.body);
   } catch (err) {
     console.error("lock acquire error:", err);
-    res.status(500).json({ error: "internal error" });
+    res.status(500).json({ error: "Waduh, gagal kunci job-nya. Coba ulangi beberapa saat lagi ya." });
   } finally {
     client.release();
   }
@@ -517,7 +517,7 @@ app.post("/v1/lock/release", tenantResolver, requireApiKey, requireStaffSession,
     res.status(result.httpStatus).json(result.body);
   } catch (err) {
     console.error("lock release error:", err);
-    res.status(500).json({ error: "internal error" });
+    res.status(500).json({ error: "Waduh, gagal lepas kunci job-nya. Coba ulangi beberapa saat lagi ya." });
   } finally {
     client.release();
   }
@@ -559,7 +559,7 @@ app.post("/v1/lock/force-unlock", tenantResolver, requireApiKey, requireStaffSes
     res.status(result.httpStatus).json(result.body);
   } catch (err) {
     console.error("force-unlock error:", err);
-    res.status(500).json({ error: "internal error" });
+    res.status(500).json({ error: "Waduh, gagal buka paksa kuncinya. Coba lagi, atau langsung kontak admin kalau masih macet." });
   } finally {
     client.release();
   }
@@ -649,7 +649,7 @@ app.post("/v1/stage-submissions", tenantResolver, requireApiKey, requireStaffSes
     res.status(result.httpStatus).json(result.body);
   } catch (err) {
     console.error("stage-submissions POST error:", err);
-    res.status(500).json({ error: "internal error" });
+    res.status(500).json({ error: "Waduh, submission-nya gagal kekirim. Coba cek koneksi lo dan ulangi ya." });
   } finally {
     client.release();
   }
@@ -884,7 +884,7 @@ app.post("/v1/stage-submissions/:id/confirm", tenantResolver, requireApiKey, req
     res.status(200).json(result.body);
   } catch (err) {
     console.error("stage-submissions confirm error:", err);
-    res.status(500).json({ error: "internal error" });
+    res.status(500).json({ error: "Waduh, gagal konfirmasi submission-nya. Coba cek koneksi lo dan ulangi ya." });
   } finally {
     client.release();
   }
@@ -1007,7 +1007,7 @@ app.post("/v1/photos", tenantResolver, requireApiKey, requireStaffSession, async
     res.json({ ok: true, photo: insertResult.rows[0] });
   } catch (err) {
     console.error("photos error:", err);
-    res.status(500).json({ error: "internal error" });
+    res.status(500).json({ error: "Waduh, foto-nya gagal keupload. Coba cek koneksi lo dan ulangi ya." });
   } finally {
     client.release();
   }
@@ -1709,7 +1709,7 @@ app.get("/v1/notifications", tenantResolver, requireApiKey, requireStaffSession,
     res.json({ notifications: result.rows, unread_count: unreadCount });
   } catch (err) {
     console.error("notifications list error:", err);
-    res.status(500).json({ error: "internal error" });
+    res.status(500).json({ error: "Waduh, gagal ambil notifikasi. Coba buka lagi beberapa saat lagi ya." });
   } finally {
     client.release();
   }
@@ -1736,7 +1736,7 @@ app.patch("/v1/notifications/:id/read", tenantResolver, requireApiKey, requireSt
     res.json({ ok: true, notification: result.rows[0] });
   } catch (err) {
     console.error("notification mark-read error:", err);
-    res.status(500).json({ error: "internal error" });
+    res.status(500).json({ error: "Waduh, gagal tandain notifikasi udah dibaca. Coba ulangi ya." });
   } finally {
     client.release();
   }
