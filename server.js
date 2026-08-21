@@ -227,6 +227,17 @@ app.post("/v1/staff/login", tenantResolver, requireApiKey, async (req, res) => {
 
   // rate limit di-scope per tenant juga, biar tenant A nggak bisa ngerjain rate limit tenant B
   const staffKey = `staff:${req.tenantId}:${staff_id}`;
+
+  // Progressive lockout dicek PALING AWAL -- kalau lagi dikunci, gak perlu
+  // buang resource cek rate limit fixed-window atau DB (Bagian 154).
+  const lockoutStatus = await rateLimiter.checkProgressiveLockout(staffKey);
+  if (lockoutStatus.locked) {
+    const minutesLeft = Math.max(1, Math.ceil(lockoutStatus.retryAfterMs / 60_000));
+    return res.status(429).json({
+      error: `PIN salah terlalu sering. Coba lagi dalam ${minutesLeft} menit ya.`,
+    });
+  }
+
   if (!(await rateLimiter.checkRateLimit(staffKey, 5, 30_000))) {
     return res.status(429).json({ error: "Terlalu banyak percobaan PIN, coba lagi sebentar lagi" });
   }
@@ -245,9 +256,22 @@ app.post("/v1/staff/login", tenantResolver, requireApiKey, async (req, res) => {
       )
     );
     if (result.rows.length === 0) {
+      // PIN salah -- catat ke progressive lockout. Kalau percobaan ini yang
+      // barusan MEMICU kunci baru (justLocked), langsung kasih tau staff
+      // sekarang juga -- jangan nunggu dia coba lagi baru ketahuan kena kunci.
+      const lockoutResult = await rateLimiter.recordFailedPinAttempt(staffKey);
+      if (lockoutResult.justLocked) {
+        const minutesLeft = Math.max(1, Math.ceil(lockoutResult.durationMs / 60_000));
+        return res.status(429).json({
+          error: `PIN salah terlalu sering. Coba lagi dalam ${minutesLeft} menit ya.`,
+        });
+      }
       return res.status(401).json({ error: "PIN salah atau staff tidak aktif" });
     }
     const staff = result.rows[0];
+    // PIN benar -- reset hitungan gagal, staff yang jujur tidak kebawa
+    // "hutang" gagal dari percobaan sebelumnya.
+    await rateLimiter.resetLockout(staffKey);
     const token = await sessionStore.createSession(req.tenantId, staff);
     res.json({ ok: true, staff, token });
   } catch (err) {
