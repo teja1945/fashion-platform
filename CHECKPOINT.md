@@ -731,3 +731,23 @@ Percobaan pertama gagal ("wrong token") karena spasi ikut ter-paste ke key authe
 [ ] Frontend web responsive -- menyusul setelah next steps di atas tuntas (Bagian 152)
 [ ] Backend inventory (CRUD lengkap) -- menyusul setelah next steps di atas tuntas (Bagian 152)
 [ ] Dashboard Owner -- menyusul setelah next steps di atas tuntas (Bagian 152)
+
+## 155. Ide Besar: Dashboard Owner (4 Pilar) -- BELUM DIEKSEKUSI, dicatat untuk perencanaan jangka panjang (21 Agustus 2026)
+
+**Konteks:** obrolan santai pasca-selesai Bagian 154, Teja cerita kebiasaan nyata di konveksi tempat dia kerja -- gak ada Staff Gudang tetap, owner sendiri yang itung stok kain, laporan kekurangan alat/consumable nunut ke siapa staff yang notice duluan (biasanya tukang jahit/finishing). Dari situ muncul gambaran lebih besar soal isi Dashboard Owner yang selama ini cuma disebut generic di next steps (Bagian 152).
+
+**PENTING -- arahan eksplisit dari Teja:** ini BUKAN proyek buat dipakai sekadar cukup jalan sekarang. Target jangka panjang 5-10 tahun ke depan. Jangan didesain kecil/sederhana dari awal dengan asumsi "nanti dibesarin belakangan" -- keempat pilar di bawah ini harus dirancang PENUH dari awal (skema data, bukan cuma UI).
+
+**4 Pilar Dashboard Owner:**
+
+1. **Inventory kain PENUH** -- satuan dasar per ROLL (bukan per meter/potong). Kartu stok per roll, histori pergerakan (masuk kapan, dipakai buat order apa, sisa berapa), alert kalau stok di bawah ambang, nanti nyambung ke purchase order (owner beli kain baru -> otomatis nambah stok). BUKAN sekadar kanal catat angka manual.
+
+2. **Sistem keuangan PENUH** -- pemasukan per order, pengeluaran (bahan, gaji staff, operasional), biar owner tau untung-rugi NYATA per order, bukan kira-kira. Teja secara eksplisit menyebut ini SEPENTING pilar produksi -- alasan: banyak konveksi kecil bangkrut karena manajemen keuangan diabaikan (cashflow campur uang pribadi, gak tau margin sebenarnya, baru sadar rugi pas sudah telat). Ini bukan fitur pelengkap, ini salah satu tujuan utama platform.
+
+3. **Laporan kekurangan fleksibel** -- bahan, alat, consumable (gas, listrik, air). Bisa dilapor SIAPA AJA staff produksi yang sedang login, TIDAK digembok ke 1 role tertentu -- karena di konveksi nyata gak ada Staff Gudang tetap. Catatan teknis: role/permission harus dirancang fleksibel dari skema (berbasis izin, bukan hardcode ke 1 jabatan), supaya kalau nanti konveksi berkembang dan beneran ada Staff Gudang resmi, tinggal role itu ditambah tanpa bongkar ulang skema atau alur yang sudah ada.
+
+4. **KPI** -- angka kinerja terukur biar owner bisa lihat performa dalam 1 layar tanpa buka data mentah satu-satu. Contoh kategori (belum final): produksi (potong selesai per hari/minggu per tahap), keuangan (margin per order, pengeluaran bulan ini vs bulan lalu), kualitas (persentase reject/gap per tahap), stok (rata-rata berapa lama 1 roll kain habis, buat prediksi kapan harus beli lagi).
+
+**Kenapa 4 pilar ini saling nyambung, bukan fitur terpisah:** laporan kekurangan bahan bisa nge-trigger pencatatan keuangan pas dibeli; inventory kain nyambung ke KPI stok; keuangan nyambung ke KPI margin. Desain skema ke depan sebaiknya mempertimbangkan keterkaitan ini dari awal, bukan dibangun sebagai 4 modul terpisah yang baru disambung belakangan.
+
+**Status: IDE, belum masuk next steps aktif, belum ada desain skema/spec konkret. Perlu sesi terpisah buat detailing skema tabel per pilar sebelum eksekusi.**
