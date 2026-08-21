@@ -751,3 +751,9 @@ Percobaan pertama gagal ("wrong token") karena spasi ikut ter-paste ke key authe
 **Kenapa 4 pilar ini saling nyambung, bukan fitur terpisah:** laporan kekurangan bahan bisa nge-trigger pencatatan keuangan pas dibeli; inventory kain nyambung ke KPI stok; keuangan nyambung ke KPI margin. Desain skema ke depan sebaiknya mempertimbangkan keterkaitan ini dari awal, bukan dibangun sebagai 4 modul terpisah yang baru disambung belakangan.
 
 **Status: IDE, belum masuk next steps aktif, belum ada desain skema/spec konkret. Perlu sesi terpisah buat detailing skema tabel per pilar sebelum eksekusi.**
+
+**Catatan tambahan Bagian 155 (pertimbangan desain, ditambahkan setelah review):**
+
+1. **Keterkaitan dengan sistem lapor yang SUDAH ADA:** proyek ini sudah punya `gap_status` di `production_jobs` (OPEN/RECOVERING/ESCALATED, lihat catatan schema v2) -- itu sistem lapor "ada masalah di 1 production job spesifik". Pilar 3 (Laporan kekurangan bahan/alat/consumable) itu KONSEP BEDA -- soal stok/kondisi global, bukan spesifik 1 job. Perlu diputuskan saat desain skema: apakah pola `gap_status`/`production_events` bisa dipakai ulang buat laporan kekurangan, atau memang harus tabel terpisah karena beda sifat. Jangan sampai staff bingung "lapor lewat mana" kalau dua sistem ini dibangun terpisah tanpa disadari kemiripannya.
+
+2. **Role/permission granular = pekerjaan arsitektur tersendiri, bukan cuma catatan teknis di pilar 3.** Role staff saat ini masih FIXED (admin/staff/owner hardcode di query, lihat server.js). Sistem permission fleksibel (supaya laporan kekurangan bisa dilapor siapa saja, dan siap kalau nanti ada Staff Gudang resmi) butuh perubahan arsitektur -- bukan sekadar tambahan kecil. Perlu dipikirkan sebagai item next steps sendiri saat mulai eksekusi 4 pilar ini, bukan disisipkan diam-diam ke pilar 3.
