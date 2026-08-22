@@ -757,3 +757,41 @@ Percobaan pertama gagal ("wrong token") karena spasi ikut ter-paste ke key authe
 1. **Keterkaitan dengan sistem lapor yang SUDAH ADA:** proyek ini sudah punya `gap_status` di `production_jobs` (OPEN/RECOVERING/ESCALATED, lihat catatan schema v2) -- itu sistem lapor "ada masalah di 1 production job spesifik". Pilar 3 (Laporan kekurangan bahan/alat/consumable) itu KONSEP BEDA -- soal stok/kondisi global, bukan spesifik 1 job. Perlu diputuskan saat desain skema: apakah pola `gap_status`/`production_events` bisa dipakai ulang buat laporan kekurangan, atau memang harus tabel terpisah karena beda sifat. Jangan sampai staff bingung "lapor lewat mana" kalau dua sistem ini dibangun terpisah tanpa disadari kemiripannya.
 
 2. **Role/permission granular = pekerjaan arsitektur tersendiri, bukan cuma catatan teknis di pilar 3.** Role staff saat ini masih FIXED (admin/staff/owner hardcode di query, lihat server.js). Sistem permission fleksibel (supaya laporan kekurangan bisa dilapor siapa saja, dan siap kalau nanti ada Staff Gudang resmi) butuh perubahan arsitektur -- bukan sekadar tambahan kecil. Perlu dipikirkan sebagai item next steps sendiri saat mulai eksekusi 4 pilar ini, bukan disisipkan diam-diam ke pilar 3.
+
+## 156. OWASP ZAP Baseline Scan + Perbaikan Keamanan (22 Agustus 2026)
+
+**ZAP scan (9 alert, semua Medium ke bawah) -- semua ditindak:**
+- CSP Header dipasang lengkap (server.js/nginx) -- whitelist cdnjs.cloudflare.com, fonts.googleapis.com/gstatic.com, connect-src * (perlu karena fitur backendUrl custom di scanner.html)
+- SRI ditambahkan ke html5-qrcode.min.js (integrity+crossorigin). SRI untuk Google Fonts CSS di-skip (resource dinamis, tidak applicable), dimitigasi via CSP whitelist
+- Private IP Disclosure: placeholder scanner.html diganti dari 192.168.1.5:3000 ke https://demo.benangrasa.com
+- X-Powered-By: app.disable('x-powered-by') di server.js
+- Server version nginx: server_tokens off diaktifkan
+- Cache-Control scanner.html: eksplisit di-set "no-cache" (sebelumnya default Express public,max-age=0)
+- Suspicious Comments (1 baris comment kode): ditinjau, dampak nihil, dibiarkan (bukan rahasia)
+
+**Temuan besar di luar scope ZAP:**
+- Subdomain demo.benangrasa.com + SSL certificate dibuat -- sebelumnya tenant demo CUMA bisa diakses via curl+Host header spoof, TIDAK BISA diakses dari browser asli karena tenantResolver.js baca subdomain dari Host header asli (browser tidak bisa spoof Host). Sekarang scanner.html bisa diakses normal dari browser via https://demo.benangrasa.com/scanner.html
+- Bug field mismatch di scanner.html: kode pakai `s.staff_id`/`s.name`, API balikin `s.id`/`s.full_name` (sisa migrasi dari LTOS lama single-tenant). Sudah diperbaiki, dropdown staff sekarang tampil normal
+- INSIDEN: scanner.html sempat ke-corrupt jadi 8 baris saat proses sed (kemungkinan sesi Termux/SSH sempat putus di tengah proses tulis). Berhasil dipulihkan penuh via `git restore scanner.html`. Pelajaran: SELALU cek `wc -l` sebelum dan sesudah tiap sed edit ke file penting, verifikasi jumlah baris tidak berubah drastis sebelum lanjut ke command berikutnya.
+
+**Rotasi API key:**
+- `API_KEY` (env var generic lama) ternyata sudah TIDAK dipakai kode sama sekali (komentar eksplisit di server.js: "tidak ada lagi API_KEY global", verifikasi via verify_tenant_api_key()). Dihapus dari .env, tidak perlu rotate (dampak nol karena tidak ada endpoint yang menerimanya).
+- `BRG_DEMO_TENANT_API_KEY` dan `BRG_DEMO2_TENANT_API_KEY`: DIROTATE via script resmi `scripts/set-tenant-api-keys.js` (generate + update database via set_tenant_api_key() + tulis ke .env). Key lama terverifikasi mati (test curl balikin "API key tidak valid").
+
+## ATURAN PERMANEN PROYEK -- KEAMANAN KREDENSIAL (berlaku semua sesi, semua AI/tools)
+
+**Sejak 22 Agustus 2026: DILARANG menampilkan/meminta paste raw API key, password, atau secret apapun ke dalam chat/percakapan dengan AI manapun (Claude atau lainnya), dalam bentuk apapun -- termasuk sebagian/redacted manual.**
+
+Cara wajib verifikasi kredensial ke depan:
+- Gunakan `grep -c` (hitung kemunculan saja, bukan isi)
+- Gunakan output ter-mask (contoh pola: `scripts/set-tenant-api-keys.js` fungsi `mask()`)
+- Verifikasi via efek/test (curl test apakah key masih valid/tidak), bukan dengan menampilkan isinya
+- Substitusi nilai kredensial via sed/env langsung di VPS, tidak pernah lewat copy-paste manual read dari chat
+
+**PENDING -- next steps prioritas tinggi:** rotasi menyeluruh semua kredensial sensitif di .env sebagai tindakan pencegahan (karena riwayat chat lama tidak bisa diaudit pasti apakah pernah ter-expose):
+- [ ] SUPABASE_SECRET_KEY -- rotate via dashboard Supabase (Project Settings > API > Service Role/Secret Key > Regenerate). PERINGATAN: begitu di-regenerate, key lama langsung mati -- update .env + restart PM2 harus SEGERA setelahnya untuk minimalkan downtime.
+- [ ] DATABASE_URL -- rotate password postgres, urutan: ganti password di server DB dulu -> update .env -> restart PM2 cepat
+- [ ] BACKUP_DATABASE_URL -- sama seperti di atas
+- [ ] REDIS_PASSWORD -- ganti config Redis dulu -> update .env -> restart PM2
+- SUPABASE_URL, SENTRY_DSN, NODE_ENV: tidak sensitif, tidak perlu rotate
+
